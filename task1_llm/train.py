@@ -44,7 +44,7 @@ from common.checkpoint import (
 )
 from common.config import build_arg_parser, load_yaml, run_id_from_config
 from common.logging_utils import JsonlLogger
-from common.paths import RESULTS_DIR, ensure_dir, task1_dir
+from common.paths import ensure_dir, task1_dir
 from common.precision import PrecisionConfig, autocast_context, make_grad_scaler, optimizer_step
 from common.resources import Timer, count_params, file_size_bytes, peak_gpu_bytes
 from common.seeding import capture_rng_state, restore_rng_state, seed_all
@@ -110,7 +110,10 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
     eval_ckpts = {int(u) for u in cfg.get("eval_checkpoints", [])}
 
     ckpt_dir = ensure_dir(task1_dir("checkpoints") / run_id)
-    results = ensure_dir(RESULTS_DIR / "task1" / run_id)
+    # Per-run logs live on Drive beside the checkpoints so they survive a Colab disconnect; on
+    # --resume JsonlLogger appends to the existing train.jsonl. Small final/aggregate results are
+    # committed to the repo's results/ separately.
+    results = ensure_dir(task1_dir("results") / run_id)
 
     # --- resume --------------------------------------------------------------------------
     start_update, start_cursor = 0, 0

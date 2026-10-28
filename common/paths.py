@@ -6,10 +6,14 @@ module. The layout mirrors the approved Drive structure:
 
     DRIVE_ROOT = MyDrive/ATML-PA3
     ├── data/                         # raw datasets + supplied files (parquet, first_plot_questions.yaml)
-    ├── hf_cache/                     # HF_HOME; model/tokenizer cache that survives disconnects
-    ├── task1/{checkpoints,eval,generations}
+    ├── task1/{checkpoints,eval,generations,results}
     ├── task2/{features,checkpoints,eval}
     └── task3/{live,cache}
+
+The HF model/tokenizer cache (HF_HOME) deliberately lives on Colab's LOCAL disk at
+/content/hf_cache, NOT on Drive: the hub cache is large and churny and the 0.6B model
+re-downloads quickly, so keeping it local avoids thrashing Drive (and its rate limits) every
+run. See hf_cache_dir().
 
 Small, committed artifacts (split IDs, aggregate results) live in the repo under splits/ and
 results/ instead — resolved here too so callers have one source of truth.
@@ -26,6 +30,8 @@ SPLITS_DIR = REPO_ROOT / "splits"     # committed: write-once selection IDs
 RESULTS_DIR = REPO_ROOT / "results"   # committed: small machine-readable outputs
 
 DRIVE_ROOT_ENV = "DRIVE_ROOT"         # set by colab/setup.ipynb
+HF_HOME_ENV = "HF_HOME"               # set by colab/setup.ipynb (local, not Drive)
+LOCAL_HF_CACHE = Path("/content/hf_cache")  # Colab-local HF cache default
 
 
 def drive_root() -> Path:
@@ -53,8 +59,14 @@ def data_dir() -> Path:
 
 
 def hf_cache_dir() -> Path:
-    """DRIVE_ROOT/hf_cache — set as HF_HOME in the bootstrap."""
-    return drive_root() / "hf_cache"
+    """Local HF cache (HF_HOME), on Colab's LOCAL disk — NOT on Drive.
+
+    The bootstrap sets HF_HOME=/content/hf_cache: the hub cache is large and churny and the 0.6B
+    model re-downloads quickly, so keeping it local avoids thrashing Drive every run. Returns
+    $HF_HOME if set, else the /content/hf_cache default.
+    """
+    value = os.environ.get(HF_HOME_ENV)
+    return Path(value) if value else LOCAL_HF_CACHE
 
 
 def task1_dir(sub: str = "") -> Path:
