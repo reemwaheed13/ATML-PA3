@@ -1,0 +1,20 @@
+# Task 1 / Step 1: Full Fine-Tuning. Updates all original parameters. (handout p4)
+inherit: _base.yaml
+run_id: full_ft
+
+method: full_ft
+train:
+  lr_peak: 2.0e-5                # p4 Step 1: peak learning rate 2e-5
+regularization:
+  l2sp_lambda: 0.0              # p4 Step 1: lambda = 0
+
+precision:
+  fp32_master: true             # p3: Full FT variants use FP32 master parameters
+  freeze_backbone: false
+
+logging:
+  # p4 Step 1: record full-model displacement ||theta - theta0||_2 at midpoint and final.
+  record_displacement: true
+
+# Full FT is the only method evaluated at the midpoint (update 625) as well as final (1250).
+eval_checkpoints: [625, 1250]

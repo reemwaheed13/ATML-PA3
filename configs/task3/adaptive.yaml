@@ -1,0 +1,41 @@
+# Task 3 / Step 5: adaptive sampling (simulated on supplied pools). (handout p13-p14)
+task: task3_adaptive
+
+# Reveal rollouts in the saved random orders; check stopping after n candidates, else stop at 32.
+# Both controllers return the current self-consistency answer, so the comparison isolates
+# stopping rather than the final selector. Recompute scores/calibration/ranks using only
+# revealed candidates (p13-14).
+check_points: [4, 8, 16]
+max_candidates: 32
+final_selector: self_consistency
+
+controllers:
+  agreement_based:
+    # Stop if a unique, non-NO_ANSWER leading answer is supported by >= fraction tau of the n
+    # candidates.
+    tau_grid: [0.5, 0.625, 0.75, 0.875, 1.0]
+  quality_aware:
+    # Same agreement condition PLUS agreement between self-consistency and RWC winners, and an
+    # RWC vote margin >= gamma. Quality signal: self-certainty (MATH), VisConf (MathVista).
+    tau_grid: [0.5, 0.625, 0.75, 0.875, 1.0]
+    gamma_grid: [0.0, 0.1, 0.25, 0.5]
+    quality_signal: {math: self_certainty, mathvista: visconf}
+    # RWC margin = (largest - second-largest vote) / total weight; 0 for runner-up when one group.
+
+always_32_fallback: true          # include the policy that always consumes 32 candidates
+
+selection:
+  # On each dataset's dev set, select the setting with the lowest mean token cost whose dev
+  # accuracy is no more than 1 percentage point below fixed-32 self-consistency, averaging over
+  # the ten orders. Break ties by higher accuracy, then smaller tau/gamma. Freeze before eval.
+  dev_accuracy_tolerance_pp: 1.0
+  reference: fixed_32_self_consistency
+  tie_break: [higher_accuracy, smaller_tau, smaller_gamma]
+  freeze_before_eval: true
+
+report:
+  # Held-out: accuracy, mean token cost, mean rollouts, stopping-count distribution, alongside
+  # fixed-N self-consistency. Analyze incorrect early stops incl. cases fixed-32 would have
+  # recovered (p14).
+  metrics: [accuracy, mean_token_cost, mean_rollouts, stop_count_distribution]
+  analyze_incorrect_early_stops: true

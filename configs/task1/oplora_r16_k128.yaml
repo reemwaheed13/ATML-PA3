@@ -1,0 +1,46 @@
+# Task 1 / Step 4: OPLoRA, r=16, alpha=32, protection rank k=128. (handout p4)
+# Uses the SAME learning rate, adapter settings, targets, and INITIAL UNPROJECTED FACTORS as
+# lora_r16 (shared module draws identical A/B from the same seed). OPLoRA forward:
+#   B_tilde = B - U_k (U_k^T B),  A_tilde = A - (A V_k) V_k^T,  dW = (alpha/r) B_tilde A_tilde.
+# Bases computed once in FP32; use effective factors (not dense projection matrices); export
+# projected factors for inference.
+inherit: _base.yaml
+run_id: oplora_r16_k128
+
+method: oplora
+train:
+  lr_peak: 2.0e-4
+
+adapter:
+  kind: oplora
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  init_a: random
+  init_b: zeros
+  trainable_bias: false
+  protect_k: 128              # protection rank k (distinct from adapter rank r)
+  match_init_from: lora_r16   # reuse lora_r16's initial unprojected factors (bit-identical)
+  basis_dtype: float32        # compute U_k, V_k bases once in FP32
+  export_projected_factors: true
+  targets:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+precision:
+  fp32_master: false
+  freeze_backbone: true
+
+logging:
+  record_adapter_param_count: true
+  # p4 Step 4: record basis storage, preprocessing time, and export overhead.
+  record_basis_storage: true
+  record_preprocessing_time: true
+  record_export_overhead: true
+
+eval_checkpoints: [1250]

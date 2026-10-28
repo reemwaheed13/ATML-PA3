@@ -1,0 +1,28 @@
+# Task 1 / Step 2: Full FT + L2-SP. Start from original checkpoint; add starting-point penalty.
+# (handout p4)
+inherit: _base.yaml
+run_id: full_ft_l2sp
+
+method: full_ft_l2sp
+train:
+  lr_peak: 2.0e-5               # same settings as Full FT
+regularization:
+  l2sp_lambda: 1.0e-3           # p4 Step 2: lambda = 1e-3
+  # Omega sums over ALL unique parameters incl. biases and normalization params, ties counted
+  # once; theta0 kept fixed; do NOT average Omega over parameters (p4 Step 2).
+  l2sp_include_bias_and_norm: true
+  l2sp_count_tied_once: true
+  l2sp_average: false
+
+precision:
+  fp32_master: true
+  freeze_backbone: false
+
+logging:
+  record_displacement: true     # full-model displacement at final (p4 Step 2)
+  # Also record Omega, lambda*Omega, total loss throughout; track reference-storage + transfer
+  # overhead (theta0 copy).
+  record_l2sp_terms: true
+  record_reference_overhead: true
+
+eval_checkpoints: [1250]        # L2-SP evaluated at final only (p4 table)

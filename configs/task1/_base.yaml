@@ -1,0 +1,58 @@
+# Task 1 shared training settings. Per-run configs set `inherit: _base.yaml` and override the
+# method-specific fields (lr, lambda, adapter). Values are from the handout (p3 "Shared training
+# settings" table + p4 Steps). Nothing here is hardcoded in code.
+
+task: task1
+
+model:
+  name: Qwen/Qwen3-0.6B          # handout p3 "Model": post-trained Qwen3-0.6B
+  enable_thinking: false         # handout p3: thinking disabled during training and generation
+  gradient_checkpointing: true   # p3 table
+
+data:
+  dataset: MetaMathQA            # p3 "Training data"
+  num_examples: 40000            # first 40,000 eligible examples, in source order
+  max_seq_len: 2048              # p3 table "Maximum 2,048 tokens"
+  # Eligibility filters (p3): exclude empty question/response, formatted length > 2048 tokens,
+  # or query/original_question matching a GSM8K test question after text normalization.
+  exclude_empty: true
+  exclude_over_max_len: true
+  gsm8k_decontaminate: true
+  # TODO(TA-question): exact text-normalization rule for GSM8K match is unspecified; the chosen
+  # rule is recorded in splits/ when the kept indices are frozen.
+  normalization: lowercase_strip_punct_ws   # placeholder; finalize after TA answer
+  shuffle: false                 # p3: "Do not ... shuffle the retained examples."
+  loss: response_only            # mask prompts+padding; CE on assistant-response + end-of-turn
+  loss_normalization: valid_response_tokens  # normalize over valid response tokens in eff. batch
+
+train:
+  total_updates: 1250            # p3 table
+  microbatch_size: 2             # p3 table
+  grad_accum_steps: 16           # p3 table -> effective batch 32
+  effective_batch: 32
+  optimizer:
+    name: adamw
+    betas: [0.9, 0.999]          # p3 table
+    eps: 1.0e-8                  # p3 table
+    weight_decay: 0.01           # p3 table; exclude biases and <2-dim params
+    exclude_wd_no_decay: true    # biases + params with fewer than two dimensions
+  lr_schedule:
+    name: cosine                 # p3 table "Cosine decay"
+    warmup_updates: 38           # p3 table
+  grad_clip_norm: 1.0            # p3 table "Global norm 1.0"
+
+precision:
+  compute_dtype: float16         # p3: FP16 compute, no quantization, AMP, dynamic scaling
+  dynamic_grad_scaling: true
+  # fp32_master / backbone-frozen set per-method below.
+
+checkpoint:
+  # Recovery checkpoints after 9,984 / 20,000 / 29,984 / 40,000 examples -> updates below (p3).
+  save_at_updates: [312, 625, 937, 1250]
+  # Preserve optimizer, scheduler, gradient-scaler, RNG, data-position (p3).
+
+eval:
+  # Evaluation schedule (p4 table). Which checkpoints get evaluated is method-specific:
+  #   baseline (update 0) evaluated once as shared; Full FT at midpoint(625)+final(1250);
+  #   L2-SP / LoRA-4 / LoRA-16 / OPLoRA at final only. See configs/task1/eval.yaml.
+  config: configs/task1/eval.yaml

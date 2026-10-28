@@ -1,0 +1,65 @@
+# Task 3 offline experiments on supplied rollouts. (handout p11-p13)
+task: task3_offline
+
+data:
+  # ATML-PA3-Data: 32 rollouts/question. Expected on DRIVE_ROOT/data (path is a config field).
+  root: ${DRIVE_ROOT}/data/ATML-PA3-Data
+  readme: ${DRIVE_ROOT}/data/ATML-PA3-Data/README.MD   # field definitions + extraction rule
+  models:
+    - {name: Qwen2.5-3B-Instruct, type: llm, dataset: math, questions: 1000, rollouts: 32}
+    - {name: Qwen2.5-VL-3B-Instruct, type: vlm, dataset: mathvista, questions: 1000, rollouts: 32}
+  files: [generations.parquet, probability_metrics.parquet]   # VLM also: attention_metrics.parquet
+  join_keys: [dataset, sample_id, rollout_id]
+  # Token measurements: sampled-token logp and full-distribution kl_u_p are RAW model dists
+  # (before sampling transforms). Images not needed for offline analysis.
+
+splits:
+  # Sort 1,000 question IDs lexicographically, permute with NumPy default_rng(6304):
+  # first 200 dev, remaining 800 held-out eval. Keep all rollouts of a question together (p11).
+  seed: 6304
+  dev_size: 200
+  eval_size: 800
+  ids_dir: splits/task3
+
+correctness:
+  # math-verify for MATH equivalence; MathVista answer-type/choice/precision rules from released
+  # question metadata; MC answers as option letters. Form answer groups WITHOUT gold; same
+  # equivalence for grading. Missing extraction -> single NO_ANSWER group, always incorrect (p11-12).
+  math_backend: math-verify
+  mathvista_backend: metadata_rules
+  no_answer_group: NO_ANSWER
+  freeze_scorer_before_eval: true
+
+offline:
+  budgets: [1, 2, 4, 8, 16, 32]   # candidate budgets N (p12)
+  n_orders: 10                    # ten seeded permutations of 32 rollout IDs, nested prefixes
+  order_seed: 6304                # derive the ten orders deterministically (TA-question #4)
+  average: [orders, questions]    # average over orders within question, then across questions
+  tie_break: earliest_supporting_rollout   # for score/vote ties in current order
+  rwc_tie: average_ranks          # average ranks for tied RWC scores
+
+signals:
+  # L_i = (1/T_i) sum log p(y_{i,t}) ;  K_i = (1/T_i) sum KL(U || p_{i,t})  (from logp, kl_u_p)
+  # VisConf (MathVista): v_{i,t} image-attention share -> V_i; calibrate token KL with 5th/95th
+  # percentiles over current candidate set G -> c_{i,t}, C_i; Z_i = V_i * C_i. Recompute
+  # calibration for each candidate prefix; linear-interpolation percentiles (p12-13).
+  percentile_low: 0.05
+  percentile_high: 0.95
+  percentile_method: linear
+  eps: 1.0e-8
+
+comparisons:
+  # Both datasets: FirstAns, self-consistency (1 vote/rollout), highest mean log-prob,
+  # highest self-certainty, self-certainty + RWC.
+  both: [first_ans, self_consistency, highest_logprob, highest_self_certainty, self_certainty_rwc]
+  # MathVista additionally: vision-only and VisConf, each with highest-score and RWC.
+  mathvista_extra: [vision_only_highest, vision_only_rwc, visconf_highest, visconf_rwc]
+
+report:
+  # Accuracy, oracle coverage, generated-token cost (sum of retained token counts); FirstAns
+  # counts only its first candidate. 1,000 paired question-level bootstrap for 95% CIs on main
+  # accuracy differences, after averaging over orders (p12).
+  metrics: [accuracy, oracle_coverage, generated_token_cost, distinct_answer_groups]
+  bootstrap_resamples: 1000
+  bootstrap_unit: question
+  decompose_failures: true        # no-correct-generated vs correct-available-but-missed

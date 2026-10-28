@@ -1,0 +1,44 @@
+# Task 2 data preparation + split sizes. (handout p7-p8)
+task: task2_data
+seed: 6304
+
+sources:
+  coco:
+    # COCO 2014 captions + instance annotations. train2014 for training, val2014 for dev/test.
+    year: 2014
+    captions_per_train_image: 3   # p7: three captions per training image
+    captions_per_dev_image: 1
+  vqav2:
+    # VQAv2 complementary pairs: same question on two images with different reference answers.
+    use_complementary_pairs: true
+
+splits:
+  # Pairs formed within each split; dev/test image-disjoint from each other and from training;
+  # eval images cannot enter training/replay; training images may recur across stages (p7).
+  coco_captions:
+    train_images: 6000            # 6,000 x 3 = 18,000 caption examples
+    train_examples: 18000
+    dev_images: 96                # 96 images, one caption each
+    test: null
+  annotation_grounding:
+    # Template questions generated programmatically from COCO object annotations (p7):
+    #   presence: "Does this image contain [object]?" (yes/no)
+    #   counting: "How many [objects] can you see?" (counts 1..4, paired with different counts)
+    train: generated_pools        # sampled during training; no fixed count
+    dev_pairs: 24                 # 24 pairs / 48 questions
+    test_pairs: 64                # 64 pairs / 128 questions
+  natural_vqav2:
+    # Keep pairs whose normalized consensus answers differ, each with >=8/10 annotator agreement.
+    # Training target = original answer string from consensus group; retain all 10 for scoring.
+    min_annotator_agreement: 8
+    train_pairs: 1536             # 1,536 pairs / 3,072 questions
+    dev_pairs: 32                 # 32 pairs / 64 questions
+    test_pairs: 96                # 96 pairs / 192 questions
+    # Per-type pair counts yes/no : number : other (p8)
+    train_type_counts: {yes_no: 640, number: 256, other: 640}
+    dev_type_counts: {yes_no: 12, number: 8, other: 12}
+    test_type_counts: {yes_no: 36, number: 24, other: 36}
+
+# All selected image/question/pair IDs saved once and reused (p8). See splits/task2/.
+ids_dir: splits/task2
+answer_normalization: vqa_official   # same normalization throughout (adapted; see scoring.py)

@@ -1,0 +1,49 @@
+# Task 1 evaluation: lm-evaluation-harness, zero-shot, fixed tasks + complete splits. (p3)
+# Seven evaluation conditions (p4): baseline(once), Full FT midpoint+final, L2-SP/LoRA-4/
+# LoRA-16/OPLoRA at final.
+
+task: task1_eval
+
+backend: hf                     # hf | vllm. Try vllm on the Colab L4 to speed GSM8K generation;
+                                # HF is the fallback (see task1_llm/evaluate.py).
+precision: float16              # p3: evaluate all models in FP16, dropout disabled
+num_fewshot: 0                  # zero-shot (p3)
+
+benchmarks:
+  gsm8k:
+    lm_eval_task: gsm8k_cot     # p3 table: gsm8k_cot, generation
+    split: test                 # Test / 1,319
+    method: generation
+    max_new_tokens: 1024        # p3: 1,024-new-token cap
+    greedy: true                # greedy decoding
+    use_chat_template: true     # non-thinking chat template (enable_thinking=False)
+    enable_thinking: false
+    primary_metric: exact_match # flexible-extraction exact match; unextractable => incorrect
+  hellaswag:
+    lm_eval_task: hellaswag     # Validation / 10,042; candidate likelihood
+    split: validation
+    method: likelihood
+    use_chat_template: false    # stock completion prompts, no chat template (p3)
+    primary_metric: acc_norm    # normalized accuracy (report raw acc too)
+  boolq:
+    lm_eval_task: boolq         # Validation / 3,270; candidate likelihood
+    split: validation
+    method: likelihood
+    use_chat_template: false
+    primary_metric: acc
+  arc_easy:
+    lm_eval_task: arc_easy      # Test / 2,376; candidate likelihood
+    split: test
+    method: likelihood
+    use_chat_template: false
+    primary_metric: acc_norm
+
+report:
+  raw_and_normalized: true      # report raw accuracy alongside normalized where available (p3)
+  save_per_example: true        # per-example outputs, extracted GSM8K answers, truncation flags
+  changes_from_baseline_pp: true  # changes from shared baseline in percentage points
+
+# Merge check (p4 Step 5): verify merged vs unmerged logits agree on a small batch before eval.
+merge_check:
+  enabled: true
+  batch_size: 8

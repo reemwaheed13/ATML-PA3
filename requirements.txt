@@ -1,0 +1,36 @@
+# ATML PA3 requirements.
+# Philosophy: on Colab, prefer the preinstalled torch build; pin the libraries whose
+# *behavior/task-definitions* we depend on. Lines marked ▲ are versions I'm not certain of
+# and intend to confirm/pin on Colab (see colab/setup.ipynb env validation) rather than guess.
+
+# --- Core DL stack ---
+# torch: use Colab's preinstalled CUDA build. Do NOT pin here unless a run needs a specific one.
+# torch
+
+# ▲ transformers: needs Qwen3 support. Qwen3 landed around 4.51 (inferred from release history,
+#   not confirmed in source). Pin an exact verified 4.5x on Colab.
+transformers>=4.51
+accelerate>=0.30
+
+# ▲ lm-eval (lm-evaluation-harness): task definitions MUST match the handout benchmarks
+#   (gsm8k_cot, hellaswag, boolq, arc_easy). Pin an exact release after confirming task names
+#   on Colab. vLLM backend is optional (see below) and only used if it runs on the L4.
+lm-eval>=0.4.3
+
+# ▲ math-verify: MATH equivalence for Task 3 (handout p11). Confirm import name + version on Colab.
+math-verify
+
+# --- Data ---
+datasets>=2.18
+pyarrow>=14.0
+pandas>=2.0
+numpy>=1.24
+pyyaml>=6.0
+Pillow>=10.0           # image decoding for SigLIP feature caching (Task 2)
+
+# --- Optional / backend ---
+# vllm: optional faster lm-eval generation backend for Task 1 GSM8K. Only install if it runs
+#   on the Colab L4; HF backend is the fallback. Left commented so it is an explicit opt-in.
+# vllm
+
+# Note: SigLIP (google/siglip-base-patch16-224) loads via transformers; no separate package.

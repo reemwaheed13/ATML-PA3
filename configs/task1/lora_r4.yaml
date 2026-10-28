@@ -1,0 +1,34 @@
+# Task 1 / Step 3: LoRA at rank 4. (handout p4)
+inherit: _base.yaml
+run_id: lora_r4
+
+method: lora
+train:
+  lr_peak: 2.0e-4              # p4 Step 3: peak learning rate 2e-4
+
+adapter:
+  kind: lora
+  rank: 4                      # (r, alpha) = (4, 8)
+  alpha: 8
+  dropout: 0.05               # p4 Step 3
+  init_a: random              # random A
+  init_b: zeros               # zero B
+  trainable_bias: false       # no trainable biases
+  protect_k: 0                # 0 => plain LoRA (shared module; OPLoRA sets k>0)
+  targets:                    # every transformer layer (p4 Step 3)
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+precision:
+  fp32_master: false          # adapter runs: frozen FP16 backbone + FP32 adapters (p3)
+  freeze_backbone: true
+
+logging:
+  record_adapter_param_count: true   # p4 Step 3: record total adapter parameter count
+
+eval_checkpoints: [1250]      # final only (p4 table)

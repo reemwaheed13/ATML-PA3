@@ -1,0 +1,17 @@
+# Task 2 / Step 7 (OPTIONAL): visual-token compression to 49 tokens. (handout p9)
+# Repeat the complete recipe averaging each 2x2 block of the 14x14 feature grid before the
+# connector. New connector + adapters; seed, data, training budgets, evaluation UNCHANGED.
+inherit: vlm_stages.yaml
+run_id: vlm_compress49
+
+visual_tokens:
+  count: 49                      # 7x7 after 2x2 average pooling of the 14x14 grid
+  pool: avg_2x2
+  calibrate_magnitude: true
+
+models:
+  vision_encoder:
+    num_patches: 196             # still extract 196; pool to 49 before the connector
+    pool_to: 49
+
+# Compare grounding, accuracy, runtime, memory against the 196-token run (p9). Optional run.

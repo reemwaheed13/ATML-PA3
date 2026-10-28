@@ -1,0 +1,37 @@
+# Task 1 / Step 6: weight-space and activation diagnostics. (handout p5)
+task: task1_diagnostics
+
+# Models evaluated: all five variants at final + Full FT at midpoint (p5).
+checkpoints:
+  - {run: full_ft, update: 625}
+  - {run: full_ft, update: 1250}
+  - {run: full_ft_l2sp, update: 1250}
+  - {run: lora_r4, update: 1250}
+  - {run: lora_r16, update: 1250}
+  - {run: oplora_r16_k128, update: 1250}
+
+weight_space:
+  module: down_proj
+  layers: [0, 13, 27]          # zero-based (p5). NOTE: assumes 28 layers (Qwen3-0.6B) -> verify.
+  compute_dtype: float32
+  # rho_k = ||U_k U_k^T dW||_F^2 / ||dW||_F^2 ;  eta = ||dW||_F / ||W0||_F
+  protect_k: 128               # same U_k bases as OPLoRA protection rank
+
+activation:
+  module: down_proj
+  compute_dtype: float32
+  # Forward hooks cache the STARTING model's down_proj inputs z at the last non-padding prompt
+  # token before answer continuation; reuse cached z across checkpoints.
+  # R(z) = ||dW z||_2 / (||W0 z||_2 + 1e-8), on math and non-math prompts.
+  epsilon: 1.0e-8
+  # TODO(TA-question): for HellaSwag (candidate-likelihood), the "prompt token before answer
+  # continuation" is ambiguous; convention finalized after TA answer.
+
+probe_set:
+  # Activation-probe set (p3 "Diagnostic and qualitative inputs"): 32 GSM8K test questions +
+  # 32 HellaSwag validation contexts, sampled with seed 6304; IDs saved and reused for every
+  # model. See splits/ (activation_probe_ids).
+  n_gsm8k: 32
+  n_hellaswag: 32
+  seed: 6304
+  ids_file: splits/task1/activation_probe_ids.json

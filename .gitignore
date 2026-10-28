@@ -1,0 +1,31 @@
+# Handout / course material (not our work product; may have redistribution limits)
+docs/
+
+# Raw datasets and large artifacts live on DRIVE_ROOT (Google Drive), never in the repo.
+# These patterns catch any local copies that sneak into the working tree.
+data/
+*.parquet
+*.arrow
+first_plot_questions.yaml   # supplied prompt file; keep out of repo unless TAs say otherwise
+
+# Checkpoints / cached features / generations (all belong on DRIVE_ROOT)
+*.pt
+*.bin
+*.safetensors
+checkpoints/
+features/
+generations/
+hf_cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Notebook / editor cruft
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store

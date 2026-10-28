@@ -1,0 +1,33 @@
+# Task 1 / Step 7: qualitative generations. (handout p5)
+task: task1_qualitative
+
+prompts:
+  # 24 prompts = 8 questions x {plain, JSON, template} formats (p3). The file is expected on
+  # DRIVE_ROOT/data; its path is a config field (NOT assumed to be in the repo).
+  # TODO(TA-question): confirm first_plot_questions.yaml is supplied; else we author the 8 base
+  # questions.
+  file: ${DRIVE_ROOT}/data/first_plot_questions.yaml
+  n_questions: 8
+  formats: [plain, json, template]
+
+generation:
+  greedy: true
+  enable_thinking: false        # thinking disabled (p5)
+  max_new_tokens: 512           # 512-new-token cap (p5)
+
+# Seven evaluation conditions (p5): baseline, Full FT midpoint, Full FT final, L2-SP, LoRA-4,
+# LoRA-16, OPLoRA. 24 prompts x 7 conditions = 168 responses, saved grouped by question+format.
+conditions:
+  - {run: baseline, update: 0}
+  - {run: full_ft, update: 625}
+  - {run: full_ft, update: 1250}
+  - {run: full_ft_l2sp, update: 1250}
+  - {run: lora_r4, update: 1250}
+  - {run: lora_r16, update: 1250}
+  - {run: oplora_r16_k128, update: 1250}
+
+annotation:
+  # Annotate first and last underlying questions in plain-question order, all 3 formats x all 7
+  # conditions = 42 responses (p5).
+  which_questions: [first, last]
+  n_annotated_responses: 42

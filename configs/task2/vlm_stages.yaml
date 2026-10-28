@@ -1,0 +1,96 @@
+# Task 2: SigLIP -> connector -> Qwen3-0.6B, 3-stage curriculum. (handout p7-p9)
+# One model carried through all three stages; shared settings at top, per-stage below.
+
+task: task2
+seed: 6304                       # p8
+
+models:
+  vision_encoder:
+    name: google/siglip-base-patch16-224   # p7; always frozen
+    num_patches: 196             # 14x14 final patch features, in spatial order (p7)
+    feature_dim: 768
+    apply_final_layernorm_once: true        # SigLIP final layer norm applied exactly once
+    cache_dtype: float16         # cache features in FP16, deterministic preprocessing (p7)
+  connector:
+    # Linear 768 -> 1024, GELU, Linear 1024 -> 1024 (p7). Trainable throughout.
+    hidden_dim: 1024
+    out_dim: 1024                # = Qwen3-0.6B hidden size (INFERRED; verify on Colab)
+    activation: gelu
+  language_model:
+    name: Qwen/Qwen3-0.6B        # original weights frozen; LoRA in stages 2-3 (p7)
+    enable_thinking: false
+    gradient_checkpointing: true
+
+# Visual tokens inserted into the user message before the question, preserving Qwen chat
+# structure (p9 Step 1). Connector output magnitude calibrated vs text embeddings using training
+# data only; rule + scale recorded.
+visual_tokens:
+  count: 196
+  calibrate_magnitude: true
+
+adapter:                         # LoRA for the LM, enabled in stages 2-3 (p9 Step 3)
+  kind: lora
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  trainable_bias: false
+  targets: [q_proj, k_proj, v_proj, o_proj]
+
+train:
+  microbatch_size: 8             # p8 table
+  grad_accum_steps: 2            # effective batch 16
+  effective_batch: 16
+  optimizer:
+    name: adamw
+    weight_decay: 0.01           # p8 table
+  lr_schedule:
+    name: cosine                 # per-stage 5% warmup then cosine decay to 10% of peak LR (p8)
+    warmup_fraction: 0.05
+    min_lr_fraction: 0.10
+  grad_clip_norm: 1.0            # p8 table
+  total_updates: 4500            # p8: 4,500 updates, 72,000 presentations incl. replay
+  content_token_caps:            # p8 table
+    question: 80
+    caption_target: 64
+    short_answer_target: 16
+
+precision:
+  compute_dtype: float16         # FP16 autocast, dynamic scaling, frozen FP16 backbone (p8)
+  dynamic_grad_scaling: true
+  freeze_backbone: true
+  fp32_trainable: true           # FP32 connector + adapters + optimizer states
+
+loss:
+  # Causal CE on caption/answer tokens + end-of-turn; mask visual tokens, prompts, padding.
+  # Example-weighted: average within example, then across the effective batch (p8).
+  type: example_weighted_causal_ce
+
+stages:
+  # Mixture draws per stage; each draw contributes two examples (a complete question pair, or two
+  # caption replays) via the seeded random sampler; no exact batch/quotas; repeats allowed (p9).
+  - name: caption_alignment      # Stage 1 (p8-p9 Step 2)
+    updates: 2250
+    connector_lr: 1.0e-3
+    lora_lr: null                # connector only; no LoRA in stage 1
+    lora_enabled: false
+    mixture: {caption: 1.0}
+  - name: visual_instruction_tuning  # Stage 2 (p8-p9 Step 3)
+    updates: 1500
+    connector_lr: 1.0e-4
+    lora_lr: 2.0e-5
+    lora_enabled: true
+    mixture: {presence: 0.50, counting: 0.25, caption_replay: 0.25}
+  - name: natural_vqa            # Stage 3 (p8-p9 Step 4); completed Stage 3 model is final
+    updates: 750
+    connector_lr: 5.0e-5
+    lora_lr: 1.0e-5
+    lora_enabled: true
+    mixture: {natural_vqa: 0.70, presence_replay: 0.10, counting_replay: 0.10, caption_replay: 0.10}
+
+checkpoint:
+  save_every_updates: 250        # resumable every 250 main-run updates (p8)
+  save_after_each_stage: true    # connector/adapter weights after each stage
+  # Include optimizer, scheduler, scaler, sampler position, stage progress, RNG (p8).
+
+eval:
+  config: configs/task2/eval.yaml

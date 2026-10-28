@@ -1,0 +1,50 @@
+# Task 3 / Step 4: live generation on 50 MATH questions. (handout p12-p13)
+task: task3_live
+
+model:
+  name: Qwen/Qwen2.5-3B-Instruct  # revision listed in ATML-PA3-Data README.MD
+  revision: null                  # TODO: fill from README.MD once confirmed
+  dtype: float16                  # FP16, no quantization
+  batch_size: 1
+
+questions:
+  # First 50 MATH evaluation questions in the default_rng(6304) permutation (p11).
+  source: splits/task3/math_live_50.json
+
+sampling:                         # p12: same as the supplied export
+  temperature: 0.7
+  top_p: 0.8
+  top_k: 20
+  repetition_penalty: 1.0
+
+prompt:
+  system: "You are a helpful assistant."
+  # original problem followed by:
+  instruction: "Think step by step inside <think> </think> tags, then give your final answer inside \\boxed{}."
+  use_native_chat_template: true
+  extract: balanced_brace_last_boxed   # balanced-brace rule in README.MD
+
+# Total output allowance 3,072 new tokens per question; three strategies (p13).
+strategies:
+  single_long:
+    responses: 1
+    caps: [3072]
+  parallel:
+    responses: 3                  # independent, self-consistency selects the answer
+    caps: [1024, 1024, 1024]
+    select: self_consistency
+  sequential_refinement:
+    # Reuse the first parallel response as initial; append the review instruction below.
+    initial_cap: 1024
+    revision_cap: 2048
+    revision_instruction: "Review the solution above. Identify and correct any errors; if it is correct, retain its answer. Give your final answer inside \\boxed{}."
+    independently_seeded: true
+
+report:
+  # Actual input/output tokens, runtime (end-to-end, excluding model loading), peak GPU memory,
+  # truncation/extraction rates, wrong-to-correct / correct-to-wrong transitions vs shared
+  # initial answer. Save prompts, responses, seeds, lengths, truncation flags (p12-13).
+  measure_runtime: true
+  record_io_tokens: true
+  record_peak_gpu: true
+  record_transitions: true

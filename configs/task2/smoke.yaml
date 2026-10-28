@@ -1,0 +1,33 @@
+# Task 2 SMOKE config: tiny 3-stage run to verify feature cache -> connector insertion ->
+# curriculum sampler -> resume/checkpoint round-trips on Colab in minutes. NOT graded.
+inherit: vlm_stages.yaml
+run_id: smoke_task2
+
+train:
+  total_updates: 30
+stages:
+  - name: caption_alignment
+    updates: 10
+    connector_lr: 1.0e-3
+    lora_lr: null
+    lora_enabled: false
+    mixture: {caption: 1.0}
+  - name: visual_instruction_tuning
+    updates: 10
+    connector_lr: 1.0e-4
+    lora_lr: 2.0e-5
+    lora_enabled: true
+    mixture: {presence: 0.50, counting: 0.25, caption_replay: 0.25}
+  - name: natural_vqa
+    updates: 10
+    connector_lr: 5.0e-5
+    lora_lr: 1.0e-5
+    lora_enabled: true
+    mixture: {natural_vqa: 0.70, presence_replay: 0.10, counting_replay: 0.10, caption_replay: 0.10}
+
+checkpoint:
+  save_every_updates: 10
+  save_after_each_stage: true
+
+smoke_eval:
+  limit_pairs: 4

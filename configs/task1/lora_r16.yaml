@@ -1,0 +1,36 @@
+# Task 1 / Step 3: LoRA at rank 16. (handout p4)
+# OPLoRA (oplora_r16_k128.yaml) MUST reuse this run's initial unprojected A/B factors; the
+# shared adapter module draws them from the same seeded generator so they are bit-identical.
+inherit: _base.yaml
+run_id: lora_r16
+
+method: lora
+train:
+  lr_peak: 2.0e-4
+
+adapter:
+  kind: lora
+  rank: 16                    # (r, alpha) = (16, 32)
+  alpha: 32
+  dropout: 0.05
+  init_a: random
+  init_b: zeros
+  trainable_bias: false
+  protect_k: 0
+  targets:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+precision:
+  fp32_master: false
+  freeze_backbone: true
+
+logging:
+  record_adapter_param_count: true
+
+eval_checkpoints: [1250]
