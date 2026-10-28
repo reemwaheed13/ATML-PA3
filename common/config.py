@@ -9,16 +9,44 @@ scripts expose the same flags.
 from __future__ import annotations
 
 import argparse
+import os
 from typing import Any
+
+import yaml
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge `override` onto `base` (override wins); nested dicts are merged.
+
+    This is what lets a per-run config override a single nested field (e.g. smoke.yaml setting
+    only `data.num_examples`) without dropping the sibling keys it inherits.
+    """
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(out.get(key), dict) and isinstance(value, dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
 
 
 def load_yaml(path: str) -> dict[str, Any]:
-    """Load a YAML config file into a dict.
+    """Load a YAML config, resolving a top-level `inherit:` chain.
 
-    TODO: yaml.safe_load; optionally support a top-level `inherit:` key so smoke.yaml can
-          override a base run config with a few fields.
+    A config may set `inherit: <relative path>` (resolved against the config's own directory) to
+    build on another config; the child is deep-merged over the resolved parent. Inheritance
+    chains (smoke.yaml -> lora_r16.yaml -> _base.yaml) are resolved recursively. The `inherit`
+    key itself is stripped from the returned dict.
     """
-    raise NotImplementedError
+    path = os.fspath(path)
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    inherit = cfg.pop("inherit", None)
+    if inherit:
+        parent_path = os.path.join(os.path.dirname(path), inherit)
+        cfg = _deep_merge(load_yaml(parent_path), cfg)
+    return cfg
 
 
 def build_arg_parser(description: str) -> argparse.ArgumentParser:
@@ -36,6 +64,9 @@ def build_arg_parser(description: str) -> argparse.ArgumentParser:
 def run_id_from_config(config_path: str, cfg: dict[str, Any]) -> str:
     """Derive a stable run identifier used to name checkpoint/eval subfolders on DRIVE_ROOT.
 
-    TODO: prefer cfg["run_id"] if present, else the config filename stem.
+    Prefers an explicit `run_id` in the config; otherwise falls back to the config filename stem.
     """
-    raise NotImplementedError
+    run_id = cfg.get("run_id")
+    if run_id:
+        return str(run_id)
+    return os.path.splitext(os.path.basename(os.fspath(config_path)))[0]

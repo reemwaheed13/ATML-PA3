@@ -23,6 +23,20 @@ Every script takes `--config <path>` and `--resume`; nothing is hardcoded. Befor
 use the per-task **`smoke.yaml`** (~20 updates, a handful of eval examples) to verify
 resume/checkpoint/merge round-trips in minutes.
 
+### Step counting (attempted vs applied)
+
+Task 1's `total_updates: 1250` and the `312/625/937/1250` recovery-checkpoint milestones count
+**attempted** optimizer steps — i.e. gradient-accumulation windows, equivalently *examples ÷ 32*.
+This is forced by the handout: one Task-1 run is exactly one 40,000-example epoch
+(40000 / 32 = 1250 updates) and the checkpoints are defined by example counts
+(9,984 / 20,000 / 29,984 / 40,000). A step that AMP skips (inf/nan gradients, dynamic-scaler
+backoff) still consumed its 32 examples, so it still counts toward these numbers and advances
+the data cursor. The **one** counter that advances on **applied** steps only is the LR scheduler
+(`common/precision.py` does not step the scheduler on a skipped step) so the cosine schedule
+tracks the actual parameter trajectory rather than wall-clock iterations. Skips are logged, so
+the (normally tiny) attempted-vs-applied gap is auditable after a run. See
+`configs/task1/_base.yaml` (`train.update_counting: attempted`).
+
 ## Repository layout
 
 ```

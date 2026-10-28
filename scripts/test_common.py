@@ -9,7 +9,7 @@ exactly the same loop (common.precision makes the scaler/autocast no-ops when di
 What it proves:
   1. Resume reproducibility. Train a tiny model from scratch, checkpoint at step N, then keep
      going to N+5. Separately, reload the step-N checkpoint into fresh objects and re-run to
-     N+5. The per-step losses AND the python/numpy/torch RNG draws must match — i.e. the
+     N+5. The per-step losses AND the python/numpy/torch(+cuda) RNG draws must match — i.e. the
      checkpoint restored model + optimizer + scheduler + scaler + RNG + the exact seeded data
      position, so the resumed run continued mid-"epoch" in the identical order.
   2. Skipped-step accounting. common.precision.optimizer_step reports a skip via the scaler's
@@ -125,9 +125,14 @@ def run_steps(model, optimizer, scheduler, scaler, sampler, data, n_steps, *,
     for local in range(n_steps):
         step = start_step + local + 1
 
-        # Draw from all three host generators to prove capture/restore of each. Recording these
-        # before they are (also) consumed below makes the resume assertion direct.
-        draws.append((random.random(), float(np.random.rand()), float(torch.rand(()).item())))
+        # Draw from every generator to prove capture/restore of each: python, numpy, torch CPU,
+        # and (on GPU) the torch.cuda generator. The cuda draw is None on CPU so the comparison
+        # is still exact and device-agnostic.
+        cuda_draw = (
+            float(torch.rand((), device=device).item()) if device.type == "cuda" else None
+        )
+        draws.append((random.random(), float(np.random.rand()),
+                      float(torch.rand(()).item()), cuda_draw))
 
         idx = sampler.next_indices()
         xb = X[idx].to(device)
@@ -215,7 +220,9 @@ def test_resume_reproducibility() -> None:
         assert abs(a - b) <= 1e-6, f"loss mismatch at resumed step {N + i + 1}: {a} vs {b}"
 
     assert sampler.pos == sampler2.pos, "data cursor diverged after resume"
-    print(f"[resume] OK — losses & RNG draws match across {EXTRA} resumed steps "
+    cuda_checked = device.type == "cuda"
+    print(f"[resume] OK — losses & RNG draws (python/numpy/torch"
+          f"{'+cuda' if cuda_checked else ''}) match across {EXTRA} resumed steps "
           f"(final loss {losses_cont[-1]:.6f}, cursor {sampler2.pos})")
 
 
