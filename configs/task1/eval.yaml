@@ -8,6 +8,24 @@ backend: hf                     # hf | vllm. Try vllm on the Colab L4 to speed G
                                 # HF is the fallback (see task1_llm/evaluate.py).
 precision: float16              # p3: evaluate all models in FP16, dropout disabled
 num_fewshot: 0                  # zero-shot (p3)
+batch_size: auto                # lm-eval batch size ("auto" lets it pick the largest that fits)
+# limit:                        # (optional) cap examples/benchmark; set in a smoke eval config
+
+# The seven evaluation conditions (p4 table). The shared baseline is the pretrained Qwen3-0.6B
+# (update 0). Every other condition is a training run evaluated at the checkpoints declared in
+# ITS OWN train config's `eval_checkpoints` (Full FT: 625 + 1250; the rest: 1250) — so the
+# schedule is defined once, next to the run. Paths are relative to the repo root.
+baseline:
+  enabled: true
+  label: baseline
+  config: configs/task1/full_ft.yaml   # any config loads the same base Qwen3-0.6B; no checkpoint
+
+conditions:
+  - config: configs/task1/full_ft.yaml          # -> full_ft_u625, full_ft_u1250
+  - config: configs/task1/full_ft_l2sp.yaml     # -> full_ft_l2sp_u1250
+  - config: configs/task1/lora_r4.yaml          # -> lora_r4_u1250
+  - config: configs/task1/lora_r16.yaml         # -> lora_r16_u1250
+  - config: configs/task1/oplora_r16_k128.yaml  # -> oplora_r16_k128_u1250
 
 benchmarks:
   gsm8k:
@@ -44,6 +62,8 @@ report:
   changes_from_baseline_pp: true  # changes from shared baseline in percentage points
 
 # Merge check (p4 Step 5): verify merged vs unmerged logits agree on a small batch before eval.
+# Gate is top-1 (argmax) agreement, which must be exact; logit_atol only warns (FP16 noise floor).
 merge_check:
   enabled: true
-  batch_size: 8
+  batch_size: 4
+  logit_atol: 0.5

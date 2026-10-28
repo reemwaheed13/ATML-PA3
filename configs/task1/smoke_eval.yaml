@@ -1,0 +1,22 @@
+# Task 1 SMOKE eval: exercise the full evaluate.py path (both prompt paths, merge check, result
+# files) cheaply before the real ~hours-long GSM8K generation. NOT a graded run.
+#
+# Evaluates just the baseline + the smoke training run (smoke_task1 @ update 20, an adapter run so
+# the merge check runs too), 8 examples per benchmark, GSM8K capped at 64 new tokens.
+inherit: eval.yaml
+task: task1_eval_smoke
+
+limit: 8                        # 8 examples per benchmark
+batch_size: 4
+
+benchmarks:
+  gsm8k:
+    max_new_tokens: 64          # tiny generation budget for the smoke path
+
+baseline:
+  enabled: true
+  label: baseline_smoke
+  config: configs/task1/smoke.yaml   # loads the same base Qwen3-0.6B; no checkpoint
+
+conditions:
+  - config: configs/task1/smoke.yaml   # -> smoke_task1_u20 (adapter run; merge check exercised)
