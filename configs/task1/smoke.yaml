@@ -7,7 +7,8 @@ data:
   num_examples: 64
 train:
   total_updates: 20            # ~20 updates
-  warmup_updates: 2
+  lr_schedule:
+    warmup_updates: 2          # canonical location (deep-merges over _base's lr_schedule)
 checkpoint:
   save_at_updates: [10, 20]    # checkpoint every ~10 steps to exercise save/resume
 eval:
