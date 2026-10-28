@@ -31,10 +31,16 @@ DRIVE_ROOT_ENV = "DRIVE_ROOT"         # set by colab/setup.ipynb
 def drive_root() -> Path:
     """Return DRIVE_ROOT from the environment (set in the Colab bootstrap).
 
-    TODO: read os.environ[DRIVE_ROOT_ENV]; raise a clear error if unset so runs fail fast
-          instead of silently writing to ephemeral local disk.
+    Fails fast with a clear error if unset, so a run never silently writes expensive artifacts to
+    Colab's ephemeral local disk (wiped on disconnect).
     """
-    raise NotImplementedError
+    value = os.environ.get(DRIVE_ROOT_ENV)
+    if not value:
+        raise RuntimeError(
+            f"{DRIVE_ROOT_ENV} is not set. Run colab/setup.ipynb (which mounts Drive and sets it) "
+            f"or pass --drive-root."
+        )
+    return Path(value)
 
 
 def data_dir() -> Path:
@@ -67,8 +73,7 @@ def task3_dir(sub: str = "") -> Path:
 
 
 def ensure_dir(path: os.PathLike | str) -> Path:
-    """Create a directory (and parents) if missing; return it.
-
-    TODO: Path(path).mkdir(parents=True, exist_ok=True); return Path.
-    """
-    raise NotImplementedError
+    """Create a directory (and parents) if missing; return it."""
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
