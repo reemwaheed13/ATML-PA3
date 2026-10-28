@@ -129,6 +129,32 @@ def build_gsm8k_test_question_set(rule: str) -> set[str]:
 # --------------------------------------------------------------------------------------------
 
 
+def _render_token_ids(tokenizer, messages, *, add_generation_prompt: bool,
+                      enable_thinking: bool) -> list[int]:
+    """Render a chat conversation to a flat list[int] of token ids, version-robustly.
+
+    apply_chat_template's return type varies across transformers versions and tokenize settings
+    (list[int], a tensor, a BatchEncoding/dict, or — as seen on Colab's transformers with Python
+    3.13 — the rendered *string*). To avoid depending on that, we render to text (tokenize=False,
+    stable everywhere) and tokenize it ourselves with add_special_tokens=False (the template has
+    already placed every special token). The result is coerced to a flat list[int].
+    """
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=add_generation_prompt,
+        enable_thinking=enable_thinking,
+    )
+    if not isinstance(text, str):
+        # Some templates return a 1-element list of strings even with tokenize=False.
+        text = text[0] if isinstance(text, (list, tuple)) and text else str(text)
+
+    ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+    if ids and isinstance(ids[0], (list, tuple)):  # unwrap an accidental batch dimension
+        ids = ids[0]
+    return [int(t) for t in ids]
+
+
 def build_chat_formatted_example(
     question: str,
     response: str,
@@ -138,14 +164,14 @@ def build_chat_formatted_example(
 ) -> dict[str, Any]:
     """Format one example as user question + assistant response with response-only labels.
 
-    Strategy (robust to Qwen3 chat-template quirks): tokenize the prompt alone (with the
-    assistant generation prefix) and the full conversation, then mask up to the length of their
-    longest common token prefix. Everything after that divergence point is the assistant
-    response plus the end-of-turn token, which is what we train on; the shared prefix (system +
-    user + assistant header, and any empty <think></think> block the template inserts) is masked.
-    Using the common-prefix boundary rather than the raw prompt length keeps the mask correct
-    even if the template renders the generation prompt slightly differently from an existing
-    assistant turn.
+    Strategy (robust to Qwen3 chat-template quirks): render the prompt alone (with the assistant
+    generation prefix) and the full conversation, tokenize both to id lists (see
+    _render_token_ids), then mask up to the length of their longest common token prefix.
+    Everything after that divergence point is the assistant response plus the end-of-turn token,
+    which is what we train on; the shared prefix (system + user + assistant header, and any empty
+    <think></think> block the template inserts) is masked. Using the common-prefix boundary
+    rather than the raw prompt length keeps the mask correct even if the template renders the
+    generation prompt slightly differently from an existing assistant turn.
 
     Returns a dict with python lists: input_ids, labels (IGNORE_INDEX on prompt+any pad later),
     and n_response_tokens.
@@ -153,11 +179,11 @@ def build_chat_formatted_example(
     user = {"role": "user", "content": question}
     assistant = {"role": "assistant", "content": response}
 
-    prompt_ids = tokenizer.apply_chat_template(
-        [user], add_generation_prompt=True, tokenize=True, enable_thinking=enable_thinking
+    prompt_ids = _render_token_ids(
+        tokenizer, [user], add_generation_prompt=True, enable_thinking=enable_thinking
     )
-    full_ids = tokenizer.apply_chat_template(
-        [user, assistant], add_generation_prompt=False, tokenize=True, enable_thinking=enable_thinking
+    full_ids = _render_token_ids(
+        tokenizer, [user, assistant], add_generation_prompt=False, enable_thinking=enable_thinking
     )
 
     boundary = 0
@@ -165,9 +191,16 @@ def build_chat_formatted_example(
     while boundary < limit and prompt_ids[boundary] == full_ids[boundary]:
         boundary += 1
 
-    labels = [IGNORE_INDEX] * boundary + list(full_ids[boundary:])
+    labels = [IGNORE_INDEX] * boundary + full_ids[boundary:]
+
+    # Safety net: training labels must be int lists of equal length to input_ids (this is the
+    # shared path that produces labels for both selection and the training loop).
+    assert isinstance(full_ids, list) and isinstance(labels, list), "ids/labels must be lists"
+    assert len(full_ids) == len(labels), "input_ids and labels length mismatch"
+    assert not full_ids or isinstance(full_ids[0], int), "input_ids must be a list[int]"
+
     return {
-        "input_ids": list(full_ids),
+        "input_ids": full_ids,
         "labels": labels,
         "n_response_tokens": len(full_ids) - boundary,
     }
@@ -215,7 +248,8 @@ def select_eligible_indices(
     tokenizer,
     *,
     dataset=None,
-) -> tuple[list[int], dict[str, int], str]:
+    gsm8k_set: set[str] | None = None,
+) -> tuple[list[int], dict[str, int], str, list[int]]:
     """Scan MetaMathQA in source order and return the first N eligible example indices.
 
     Applies the eligibility filters in the order empty -> GSM8K-decontam -> over-length (the
@@ -224,8 +258,11 @@ def select_eligible_indices(
     returned counts describe the consumed source-order prefix (which is exactly what determines
     the frozen selection).
 
-    Returns (kept_indices, counts, normalization_rule). `counts` has: total_scanned,
-    removed_empty, removed_decontam, removed_over_len, eligible, kept.
+    Returns (kept_indices, counts, normalization_rule, kept_token_lengths). `counts` has:
+    total_scanned, removed_empty, removed_decontam, removed_over_len, eligible, kept. The formatted
+    token length is computed for every candidate that clears empty+decontam (so length stats are
+    available for the kept set even when the over-length filter is disabled); the limit is only
+    enforced when exclude_over_max_len is set. Pass `gsm8k_set` to reuse a prebuilt decontam set.
     """
     data_cfg = cfg.get("data", {})
     num_examples = int(data_cfg.get("num_examples", 40000))
@@ -238,7 +275,8 @@ def select_eligible_indices(
     fields = _data_fields(cfg)
     qf, of, rf = fields["query"], fields["original_question"], fields["response"]
 
-    gsm8k = build_gsm8k_test_question_set(rule) if do_decontam else set()
+    if gsm8k_set is None:
+        gsm8k_set = build_gsm8k_test_question_set(rule) if do_decontam else set()
     if dataset is None:
         dataset = load_metamathqa(cfg)
 
@@ -251,6 +289,7 @@ def select_eligible_indices(
         "kept": 0,
     }
     kept: list[int] = []
+    kept_lengths: list[int] = []
 
     for i, ex in enumerate(dataset):
         counts["total_scanned"] += 1
@@ -263,27 +302,28 @@ def select_eligible_indices(
             continue
 
         if do_decontam and (
-            normalize_text_for_decontam(query, rule) in gsm8k
-            or (original and normalize_text_for_decontam(original, rule) in gsm8k)
+            normalize_text_for_decontam(query, rule) in gsm8k_set
+            or (original and normalize_text_for_decontam(original, rule) in gsm8k_set)
         ):
             counts["removed_decontam"] += 1
             continue
 
-        if do_overlen:
-            formatted = build_chat_formatted_example(
-                query, response, tokenizer, enable_thinking=enable_thinking
-            )
-            if len(formatted["input_ids"]) > max_len:
-                counts["removed_over_len"] += 1
-                continue
+        formatted = build_chat_formatted_example(
+            query, response, tokenizer, enable_thinking=enable_thinking
+        )
+        length = len(formatted["input_ids"])
+        if do_overlen and length > max_len:
+            counts["removed_over_len"] += 1
+            continue
 
         kept.append(i)
+        kept_lengths.append(length)
         if len(kept) >= num_examples:
             break
 
     counts["eligible"] = len(kept)
     counts["kept"] = len(kept)
-    return kept, counts, rule
+    return kept, counts, rule, kept_lengths
 
 
 def save_kept_indices(
@@ -394,6 +434,45 @@ def iterate_microbatches(
 
 
 # --------------------------------------------------------------------------------------------
+# CLI helpers.
+# --------------------------------------------------------------------------------------------
+
+
+def decontam_self_check(gsm8k_set: set[str], rule: str, sample_question: str) -> bool:
+    """Assert the decontam path works: a known GSM8K test question, treated as a candidate, is
+    flagged for removal under `rule`, while an unrelated string is not. Prints and returns True."""
+    injected_removed = normalize_text_for_decontam(sample_question, rule) in gsm8k_set
+    unrelated_removed = (
+        normalize_text_for_decontam("the capital of france is paris 42 zzz", rule) in gsm8k_set
+    )
+    print(f"Decontam self-check (rule={rule}): injected GSM8K question removed="
+          f"{injected_removed}; unrelated string removed={unrelated_removed}")
+    assert injected_removed, "Decontam self-check FAILED: known GSM8K test question not detected."
+    assert not unrelated_removed, "Decontam self-check FAILED: unrelated string matched GSM8K set."
+    return True
+
+
+def _print_previews(dataset, kept: list[int], tokenizer, cfg: dict[str, Any], n: int) -> None:
+    """Print `n` masked previews from the first kept examples (response-only masking by eye)."""
+    if n <= 0 or not kept:
+        return
+    enable_thinking = bool(cfg.get("model", {}).get("enable_thinking", False))
+    fields = _data_fields(cfg)
+    qf, rf = fields["query"], fields["response"]
+    print(f"\n--- {min(n, len(kept))} masked example(s) "
+          f"(verify only the response + end-of-turn is trained) ---")
+    for idx, src in enumerate(kept[:n]):
+        formatted = build_chat_formatted_example(
+            (dataset[src].get(qf) or "").strip(),
+            (dataset[src].get(rf) or "").strip(),
+            tokenizer,
+            enable_thinking=enable_thinking,
+        )
+        print(f"\n[example {idx} — source index {src}]")
+        print(masked_preview(formatted, tokenizer))
+
+
+# --------------------------------------------------------------------------------------------
 # CLI: freeze the selection.
 # --------------------------------------------------------------------------------------------
 
@@ -406,11 +485,31 @@ def main() -> None:
     )
     parser.add_argument(
         "--preview", type=int, default=2,
-        help="Print this many masked examples after selection (0 to skip).",
+        help="Print this many masked examples (0 to skip).",
+    )
+    parser.add_argument(
+        "--preview-only", action="store_true",
+        help="Load the existing split file and print masked previews without rewriting anything.",
     )
     args = parser.parse_args()
 
+    import transformers
+    print(f"transformers {transformers.__version__}")
+
     cfg = load_yaml(args.config)
+
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["name"])
+
+    # --preview-only: read the frozen split and show previews; change nothing on disk.
+    if args.preview_only:
+        existing = load_kept_indices()
+        dataset = load_metamathqa(cfg)
+        print(f"Loaded split: {len(existing['kept_indices'])} kept indices, "
+              f"rule={existing.get('normalization_rule')}")
+        _print_previews(dataset, existing["kept_indices"], tokenizer, cfg, args.preview or 2)
+        return
+
     seed_all(SEED)  # selection is deterministic (source order); seed set for reproducibility.
 
     out_path = os.fspath(KEPT_INDICES_PATH)
@@ -420,12 +519,24 @@ def main() -> None:
             f"overwrite (only if you intend to change the frozen training set)."
         )
 
-    from transformers import AutoTokenizer
-
-    tokenizer = AutoTokenizer.from_pretrained(cfg["model"]["name"])
+    data_cfg = cfg.get("data", {})
+    rule = data_cfg.get("normalization", DEFAULT_NORMALIZATION_RULE)
+    max_len = int(data_cfg.get("max_seq_len", 2048))
+    do_decontam = bool(data_cfg.get("gsm8k_decontaminate", True))
 
     dataset = load_metamathqa(cfg)
-    kept, counts, rule = select_eligible_indices(cfg, tokenizer, dataset=dataset)
+
+    # Build the GSM8K decontam set once, run the self-check, then reuse the set for selection.
+    gsm8k_set: set[str] = set()
+    if do_decontam:
+        from datasets import load_dataset
+        gsm = load_dataset(GSM8K_DATASET, GSM8K_CONFIG, split="test")
+        gsm8k_set = {normalize_text_for_decontam(q, rule) for q in gsm["question"]}
+        decontam_self_check(gsm8k_set, rule, gsm["question"][0])
+
+    kept, counts, rule, kept_lengths = select_eligible_indices(
+        cfg, tokenizer, dataset=dataset, gsm8k_set=gsm8k_set if do_decontam else None
+    )
     save_kept_indices(out_path, kept, counts, cfg, rule, force=args.force)
 
     print(f"Wrote {len(kept)} kept indices to {out_path}")
@@ -435,21 +546,11 @@ def main() -> None:
                 "eligible", "kept"):
         print(f"  {key:>16}: {counts[key]}")
 
-    if args.preview > 0 and kept:
-        enable_thinking = bool(cfg.get("model", {}).get("enable_thinking", False))
-        fields = _data_fields(cfg)
-        qf, rf = fields["query"], fields["response"]
-        print(f"\n--- {min(args.preview, len(kept))} masked example(s) "
-              f"(verify only the response + end-of-turn is trained) ---")
-        for n, src in enumerate(kept[: args.preview]):
-            formatted = build_chat_formatted_example(
-                (dataset[src].get(qf) or "").strip(),
-                (dataset[src].get(rf) or "").strip(),
-                tokenizer,
-                enable_thinking=enable_thinking,
-            )
-            print(f"\n[example {n} — source index {src}]")
-            print(masked_preview(formatted, tokenizer))
+    if kept_lengths:
+        print(f"Kept token length: max={max(kept_lengths)}, "
+              f"mean={sum(kept_lengths) / len(kept_lengths):.1f}, limit={max_len}")
+
+    _print_previews(dataset, kept, tokenizer, cfg, args.preview)
 
 
 if __name__ == "__main__":
