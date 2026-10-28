@@ -81,12 +81,18 @@ python -m task1_llm.diagnostics_activation --config configs/task1/diagnostics.ya
 python -m task1_llm.qualitative            --config configs/task1/qualitative.yaml
 ```
 
-> **Evaluation prompt format (requirement).** `evaluate.py` (and the diagnostics/qualitative
-> scripts) must build every prompt with the **same Qwen3 chat template used in training** —
-> `enable_thinking=False`, i.e. an empty `<think></think>` block — so the model is queried exactly
-> as it was fine-tuned. A mismatch here (e.g. letting the template inject a thinking turn) silently
-> invalidates the comparison across the seven conditions. See `task1_llm/data.py` for the training
-> side of this contract.
+> **Evaluation prompt format (requirement).** `evaluate.py` must implement **two** prompt paths,
+> per the PA3 spec:
+>
+> - **`gsm8k_cot`** uses the **same Qwen3 chat template as training** — `enable_thinking=False`,
+>   i.e. an empty `<think></think>` block — with `num_fewshot=0`, greedy decoding, and 1024 max
+>   new tokens, so the model is queried exactly as it was fine-tuned. See `task1_llm/data.py` for
+>   the training side of this contract.
+> - **`hellaswag`, `boolq`, `arc_easy`** use lm-eval's **stock completion prompts with NO chat
+>   template** (candidate-likelihood scoring) — do *not* wrap these in the chat template.
+>
+> Applying the chat template to the multiple-choice tasks (or dropping it from `gsm8k_cot`)
+> silently invalidates the comparison across the seven conditions.
 >
 > Resume/disconnect testing: any train run accepts `--stop-after N` (exit cleanly after N updates,
 > after any checkpoint at N) to simulate a Colab disconnect, then `--resume` to continue. The
