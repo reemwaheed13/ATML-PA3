@@ -50,14 +50,20 @@ def load_yaml(path: str) -> dict[str, Any]:
 
 
 def build_arg_parser(description: str) -> argparse.ArgumentParser:
-    """Standard parser: --config (required), --resume (flag), --drive-root (optional override).
+    """Standard parser: --config (required), --resume (flag), --drive-root + --stop-after.
 
-    TODO: add arguments; --resume continues from the latest checkpoint for this config's run id.
+    --resume continues from the latest checkpoint for this config's run id. --stop-after N exits
+    cleanly after N optimizer updates (used to simulate a Colab disconnect for resume testing).
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", required=True, help="Path to a YAML config under configs/.")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint.")
     parser.add_argument("--drive-root", default=None, help="Override DRIVE_ROOT (else env var).")
+    parser.add_argument(
+        "--stop-after", type=int, default=None, metavar="N",
+        help="Exit cleanly after N optimizer updates (after any checkpoint at N); "
+             "simulates a Colab disconnect for testing --resume.",
+    )
     return parser
 
 

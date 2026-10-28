@@ -56,7 +56,7 @@ def load_base_model(cfg: dict[str, Any]):
     load_dtype = torch.float32 if fp32_master else _compute_dtype(cfg)
 
     tokenizer = AutoTokenizer.from_pretrained(name)
-    model = AutoModelForCausalLM.from_pretrained(name, torch_dtype=load_dtype)
+    model = AutoModelForCausalLM.from_pretrained(name, dtype=load_dtype)
 
     model.config.use_cache = False
     if model_cfg.get("gradient_checkpointing", False):

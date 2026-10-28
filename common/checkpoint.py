@@ -67,13 +67,20 @@ def checkpoint_path(dir_path: str, step: int) -> str:
     return os.path.join(dir_path, f"{CHECKPOINT_PREFIX}{int(step)}{CHECKPOINT_SUFFIX}")
 
 
-def save_checkpoint(path: str, state: CheckpointState, *, atomic: bool = True) -> None:
+def save_checkpoint(
+    path: str, state: CheckpointState, *, atomic: bool = True, verify: bool = True
+) -> None:
     """Serialize a CheckpointState to `path` on DRIVE_ROOT.
 
     Args:
         atomic: write to a temp file (flush + fsync) then os.replace onto `path`, so a
             disconnect mid-write cannot corrupt the previous good checkpoint. See the module
             docstring. Set False only for throwaway/local tests.
+        verify: after the atomic replace, read the file back (size > 0 + torch.load succeeds +
+            required keys present) and raise RuntimeError if it is unreadable. Drive's FUSE mount
+            has silently corrupted a file on us before, so a caller must not prune the previous
+            good checkpoint until this reload confirms the new one is intact. Only meaningful with
+            atomic=True.
     """
     # Build the payload explicitly (not dataclasses.asdict, which deep-copies tensors).
     payload = {
@@ -114,6 +121,32 @@ def save_checkpoint(path: str, state: CheckpointState, *, atomic: bool = True) -
             except OSError:
                 pass
         raise
+
+    if verify:
+        _verify_checkpoint(path)
+
+
+def _verify_checkpoint(path: str) -> None:
+    """Read a just-written checkpoint back to confirm it is intact; raise if not.
+
+    Catches a truncated/garbled write (e.g. Drive FUSE flaking) before the caller trusts it or
+    prunes the previous good checkpoint. Does a full torch.load so a partially-flushed pickle is
+    caught, not just a zero-byte file.
+    """
+    try:
+        if os.path.getsize(path) <= 0:
+            raise RuntimeError("file is empty")
+        try:
+            obj = torch.load(path, map_location="cpu", weights_only=False)
+        except TypeError:
+            obj = torch.load(path, map_location="cpu")
+        if not isinstance(obj, dict) or "weights" not in obj or "step" not in obj:
+            raise RuntimeError("missing expected keys")
+    except Exception as exc:  # noqa: BLE001 — re-raised with context below
+        raise RuntimeError(
+            f"checkpoint {path} failed read-back verification ({exc}); the file may be "
+            f"corrupt. The previous checkpoint was left untouched."
+        ) from exc
 
 
 def load_checkpoint(path: str, map_location: str = "cpu") -> CheckpointState:
@@ -159,6 +192,38 @@ def latest_checkpoint(dir_path: str) -> Optional[str]:
             best_step = step
             best_path = os.path.join(dir_path, name)
     return best_path
+
+
+def list_checkpoints(dir_path: str) -> dict[int, str]:
+    """Map step -> path for every recovery checkpoint in `dir_path` (empty if none)."""
+    out: dict[int, str] = {}
+    if not os.path.isdir(dir_path):
+        return out
+    for name in os.listdir(dir_path):
+        m = _STEP_RE.match(name)
+        if m is not None:
+            out[int(m.group(1))] = os.path.join(dir_path, name)
+    return out
+
+
+def prune_checkpoints(dir_path: str, keep_steps: "set[int]") -> list[str]:
+    """Delete every checkpoint in `dir_path` whose step is not in `keep_steps`.
+
+    Call this only *after* a new checkpoint has been saved and read-back verified, so a
+    superseded recovery checkpoint is removed only once its successor is known good. Checkpoints
+    at steps you still need (e.g. the eval-checkpoint milestones) must be included in keep_steps.
+    Returns the paths removed.
+    """
+    removed: list[str] = []
+    for step, path in list_checkpoints(dir_path).items():
+        if step in keep_steps:
+            continue
+        try:
+            os.remove(path)
+            removed.append(path)
+        except OSError:
+            pass
+    return removed
 
 
 def _fsync_fd(fd: int) -> None:

@@ -39,6 +39,7 @@ from common.checkpoint import (
     checkpoint_path,
     latest_checkpoint,
     load_checkpoint,
+    prune_checkpoints,
     save_checkpoint,
 )
 from common.config import build_arg_parser, load_yaml, run_id_from_config
@@ -65,8 +66,12 @@ log = logging.getLogger(__name__)
 _FULL_METHODS = ("full_ft", "full_ft_l2sp")
 
 
-def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
-    """Run (or resume) one SFT run defined by `cfg`."""
+def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None = None) -> None:
+    """Run (or resume) one SFT run defined by `cfg`.
+
+    stop_after: if set, exit cleanly after this many optimizer updates (after any checkpoint that
+    lands at that update), to simulate a Colab disconnect for resume testing.
+    """
     run_id = cfg.get("run_id") or "task1_run"
     method = cfg["method"]
     is_full = method in _FULL_METHODS
@@ -109,11 +114,13 @@ def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
 
     # --- resume --------------------------------------------------------------------------
     start_update, start_cursor = 0, 0
+    resumed_from: str | None = None
     if resume:
         latest = latest_checkpoint(str(ckpt_dir))
         if latest is None:
             log.warning("--resume set but no checkpoint in %s; starting fresh.", ckpt_dir)
         else:
+            resumed_from = latest
             ck = load_checkpoint(latest)
             # Fail loudly if any trainable parameter is absent from the checkpoint. For adapter
             # runs we load with strict=False (the checkpoint deliberately omits the frozen
@@ -136,6 +143,22 @@ def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
             start_update = int(ck.step)
             start_cursor = int(ck.data_position.get("cursor", 0))
             log.info("Resumed %s at update %d (data cursor %d).", run_id, start_update, start_cursor)
+
+    # Announce start state on stdout (Colab) so a resume is unambiguous.
+    if resumed_from is not None:
+        print(f"[train] RESUMING {run_id} from {resumed_from} at update "
+              f"{start_update}/{total_updates} (data cursor {start_cursor}).", flush=True)
+    elif resume:
+        print(f"[train] --resume set but no checkpoint found; STARTING FRESH {run_id}: "
+              f"0/{total_updates} updates.", flush=True)
+    else:
+        print(f"[train] STARTING FRESH {run_id}: 0/{total_updates} updates.", flush=True)
+
+    # If a resumed checkpoint is already at (or past) the target, there is nothing to do.
+    if start_update >= total_updates:
+        print(f"[train] {run_id} already complete ({start_update}/{total_updates} updates); "
+              f"nothing to do.", flush=True)
+        return
 
     # Export pristine adapter factors on a fresh adapter start so OPLoRA-16 can match LoRA-16.
     if adapters is not None and start_update == 0:
@@ -198,11 +221,17 @@ def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
             extra=extra,
         )
         path = checkpoint_path(str(ckpt_dir), upd)
+        # save_checkpoint reads the file back and raises if the write is corrupt, so we only reach
+        # the prune below once this checkpoint is known good. Keep this update + every eval
+        # checkpoint (evaluate.py needs e.g. Full-FT's midpoint 625 and final 1250); drop any
+        # superseded pure-recovery checkpoint to save Drive space.
         save_checkpoint(path, state)
+        prune_checkpoints(str(ckpt_dir), keep_steps={upd} | eval_ckpts)
         return path
 
     # --- training loop -------------------------------------------------------------------
     peak_log_updates = {1, 2, 5} if is_smoke else set()
+    stopped_early = False
     with Timer() as timer:
         while update < total_updates:
             optimizer.zero_grad(set_to_none=True)
@@ -263,6 +292,9 @@ def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
                 record["lambda_omega"] = terms["lambda_omega"]
                 record["total_loss"] = eff_loss + terms["lambda_omega"]
             logger.log(record)
+            print(f"[train] {run_id} {update}/{total_updates} loss={eff_loss:.4f} "
+                  f"lr={record['lr']:.2e} scale={info['scale']:g} skipped={info['skipped']}",
+                  flush=True)
 
             if update in peak_log_updates:
                 logger.log({"type": "peak_gpu", "update": update,
@@ -275,6 +307,21 @@ def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
 
             if update in save_at:
                 save_recovery(update, disp)
+
+            # Simulated-disconnect stop: break after finishing this update (and its checkpoint).
+            if stop_after is not None and update >= stop_after:
+                stopped_early = True
+                print(f"[train] --stop-after {stop_after} reached; stopping {run_id} at update "
+                      f"{update}/{total_updates}. Re-run with --resume to continue.", flush=True)
+                break
+
+    # A simulated-disconnect stop leaves the run unfinished: don't force a final checkpoint and
+    # don't write the completion-implying resource summary. The stop was already announced above.
+    if stopped_early:
+        logger.close()
+        log.info("Stopped %s early at update %d/%d (%.1fs).",
+                 run_id, update, total_updates, timer.wall_seconds)
+        return
 
     # Ensure a final checkpoint exists even if total_updates wasn't in save_at_updates.
     if total_updates not in save_at:
@@ -299,17 +346,19 @@ def train(cfg: dict[str, Any], *, resume: bool = False) -> None:
     logger.close()
     log.info("Finished %s: %d updates, %.1fs, peak GPU %d bytes.",
              run_id, update, timer.wall_seconds, timer.peak_gpu_bytes)
+    print(f"[train] FINISHED {run_id}: {update}/{total_updates} updates, "
+          f"{timer.wall_seconds:.1f}s, peak GPU {timer.peak_gpu_bytes} bytes.", flush=True)
 
 
 def main() -> None:
-    """CLI entry point: parse --config/--resume, load YAML, call train."""
+    """CLI entry point: parse --config/--resume/--stop-after, load YAML, call train."""
     parser = build_arg_parser("Task 1 SFT training (resumable).")
     args = parser.parse_args()
     if args.drive_root:
         os.environ["DRIVE_ROOT"] = args.drive_root
     cfg = load_yaml(args.config)
     cfg.setdefault("run_id", run_id_from_config(args.config, cfg))
-    train(cfg, resume=args.resume)
+    train(cfg, resume=args.resume, stop_after=args.stop_after)
 
 
 if __name__ == "__main__":

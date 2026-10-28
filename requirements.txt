@@ -7,9 +7,9 @@
 # torch: use Colab's preinstalled CUDA build. Do NOT pin here unless a run needs a specific one.
 # torch
 
-# ▲ transformers: needs Qwen3 support. Qwen3 landed around 4.51 (inferred from release history,
-#   not confirmed in source). Pin an exact verified 4.5x on Colab.
-transformers>=4.51
+# transformers: needs Qwen3 support. Pinned to the exact version validated on Colab (L4,
+#   torch 2.11.0+cu130) — smoke run confirmed Qwen3-0.6B loading + chat template.
+transformers==5.20.2
 accelerate>=0.30
 
 # ▲ lm-eval (lm-evaluation-harness): task definitions MUST match the handout benchmarks

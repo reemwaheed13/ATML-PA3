@@ -1,0 +1,23 @@
+# Task 1 SMOKE config for the HEAVIEST run: Full FT + L2-SP. Same tiny end-to-end settings as
+# smoke.yaml (20 updates, 64 examples) but inheriting full_ft_l2sp so it carries FP32 master
+# params, the theta0 reference copy, and displacement/Omega logging — i.e. the maximum memory
+# footprint. Use it to read peak GPU before committing to the ~3 h real run. NOT a graded run.
+inherit: full_ft_l2sp.yaml
+run_id: smoke_full_ft_l2sp
+
+data:
+  num_examples: 64
+train:
+  total_updates: 20            # ~20 updates
+  lr_schedule:
+    warmup_updates: 2          # deep-merges over _base's lr_schedule
+checkpoint:
+  save_at_updates: [10, 20]    # checkpoint every ~10 steps to exercise save/resume
+eval:
+  config: configs/task1/smoke.yaml
+eval_checkpoints: [20]         # displacement at the final smoke update (heaviest path)
+
+# Tiny eval: a handful of examples per benchmark so the harness path is exercised cheaply.
+smoke_eval:
+  limit_examples: 8
+  gsm8k_max_new_tokens: 64
