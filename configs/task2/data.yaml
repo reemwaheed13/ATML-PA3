@@ -42,3 +42,47 @@ splits:
 # All selected image/question/pair IDs saved once and reused (p8). See splits/task2/.
 ids_dir: splits/task2
 answer_normalization: vqa_official   # same normalization throughout (adapted; see scoring.py)
+
+# Standard public COCO-2014 / VQAv2 files, expected under DRIVE_ROOT/data/ (filenames are config
+# fields so a different layout is a config edit, not a code change). Fetch with
+# scripts/download_task2_data.sh.
+paths:
+  images:                          # image subdirectories under DRIVE_ROOT/data/
+    train: train2014
+    dev: val2014
+    test: val2014
+  coco_filename_template: "COCO_{subset}_{image_id:012d}.jpg"   # COCO-2014 naming
+annotations:
+  captions_train: captions_train2014.json
+  captions_val: captions_val2014.json
+  instances_train: instances_train2014.json
+  instances_val: instances_val2014.json
+  vqa_questions_train: v2_OpenEnded_mscoco_train2014_questions.json
+  vqa_questions_val: v2_OpenEnded_mscoco_val2014_questions.json
+  vqa_annotations_train: v2_mscoco_train2014_annotations.json
+  vqa_annotations_val: v2_mscoco_val2014_annotations.json
+  vqa_complementary_train: v2_mscoco_train2014_complementary_pairs.json
+  vqa_complementary_val: v2_mscoco_val2014_complementary_pairs.json
+
+# Image manifest (image_id -> subset) written by the selection step; features.py caches from it.
+manifest: splits/task2/image_manifest.json
+
+grounding:
+  # presence/counting generation + dev/test freeze. The presence:counting split of the combined
+  # annotation-derived dev (24) / test (64) pairs is unspecified by the handout; split evenly and
+  # record it. Counting uses annotated counts in [1, 4].
+  counting_range: [1, 4]
+  dev_presence_pairs: 12
+  dev_counting_pairs: 12
+  test_presence_pairs: 32
+  test_counting_pairs: 32
+
+prompts:
+  # Text wording (visual tokens are spliced BEFORE the question in the user turn, p9 Step 1).
+  caption_instruction: "Describe this image."
+  presence_template: "Does this image contain {object}?"
+  counting_template: "How many {object} can you see?"
+
+# TA-question #3: which 3 of the 5 captions per image. Default rule (recorded in the split file):
+# the first three captions in ascending COCO caption-id order.
+caption_selection_rule: first3_by_caption_id
