@@ -3,6 +3,14 @@
 inherit: vlm_stages.yaml
 run_id: smoke_task2
 
+# Read the smoke selections + manifest (written by smoke_data), not the real splits/task2.
+ids_dir: splits/task2_smoke
+manifest: splits/task2_smoke/image_manifest.json
+prompts:
+  caption_instruction: "Describe this image."
+  presence_template: "Does this image contain {object}?"
+  counting_template: "How many {object} can you see?"
+
 train:
   total_updates: 30
 stages:

@@ -4,6 +4,10 @@
 inherit: data.yaml
 task: task2_data_smoke
 
+# Write the smoke selection + manifest to a SEPARATE dir so it never clobbers the real splits.
+ids_dir: splits/task2_smoke
+manifest: splits/task2_smoke/image_manifest.json
+
 splits:
   coco_captions:
     train_images: 8                # 8 x 3 = 24 caption examples

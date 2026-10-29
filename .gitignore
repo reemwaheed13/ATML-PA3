@@ -17,6 +17,9 @@ features/
 generations/
 hf_cache/
 
+# Task 2 smoke selections/manifest (throwaway; keep real splits/task2 committed)
+splits/task2_smoke/
+
 # Python
 __pycache__/
 *.py[cod]

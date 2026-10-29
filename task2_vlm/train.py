@@ -33,7 +33,7 @@ from common.seeding import capture_rng_state, restore_rng_state, seed_all
 
 from .data import CurriculumSampler
 from .features import load_cached_features
-from .model import SigLIPQwenVLM
+from .model import SigLIPQwenVLM, sanity_checks
 
 
 def _stage_bounds(stages: list[dict]) -> list[tuple[int, int]]:
@@ -163,6 +163,18 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
         print(f"[task2.train] {run_id} already complete ({start_update}/{total_updates}).", flush=True)
         logger.close()
         return
+
+    # Sanity checks before Stage 1 on every run (real + smoke): one real forward/backward asserting
+    # connector grads + feature/visual shapes + frozen backbone. Abort on failure; log the report.
+    try:
+        sanity_report = sanity_checks(model, cfg)
+    except Exception as exc:
+        logger.log({"type": "sanity", "ok": False, "update": start_update, "error": repr(exc)})
+        logger.close()
+        raise SystemExit(f"[task2.train] sanity_checks FAILED: {exc!r}")
+    logger.log({"type": "sanity", "ok": True, "update": start_update, "report": sanity_report})
+    print(f"[task2.train] sanity_checks OK: visual={sanity_report.get('visual_shape')} "
+          f"connector_grad_ok={sanity_report.get('connector_grad_ok')}", flush=True)
 
     feat_cache: dict[int, torch.Tensor] = {}
 

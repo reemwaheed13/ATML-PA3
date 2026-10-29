@@ -4,6 +4,10 @@
 inherit: data.yaml
 task: task2_features_smoke
 
+# Read the smoke manifest (written by smoke_data) so the feature cache matches the smoke splits.
+ids_dir: splits/task2_smoke
+manifest: splits/task2_smoke/image_manifest.json
+
 features:
   cache_subdir: features           # same cache as the real run (idempotent; reused if present)
   batch_size: 8
