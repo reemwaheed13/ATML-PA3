@@ -212,6 +212,16 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
             if update >= g1:
                 continue                                    # whole stage already done (resume)
 
+            # Freeze/unfreeze adapters for this stage (Stage 1 connector-only), then log the
+            # requires_grad-derived trainable counts before building the optimizer.
+            model.set_adapter_trainable(bool(stage_cfg.get("lora_enabled", False)))
+            counts = model.trainable_param_counts()
+            logger.log({"type": "stage_start", "stage": stage_cfg["name"], "stage_idx": stage_idx,
+                        "update": update, "trainable_params": counts})
+            print(f"[task2.train] stage {stage_cfg['name']}: trainable params "
+                  f"connector={counts['connector']} adapters={counts['adapters']} "
+                  f"total={counts['total']}", flush=True)
+
             sampler = CurriculumSampler(cfg, stage_cfg, model.tokenizer,
                                         seed=int(SEED + 1000 * (stage_idx + 1)))
             optimizer = _build_optimizer(model, stage_cfg, cfg)

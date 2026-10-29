@@ -68,6 +68,9 @@ class SigLIPQwenVLM(nn.Module):
             generator = torch.Generator().manual_seed(SEED)
             self.adapters = attach_adapters(self.qwen, acfg, list(cfg["adapter"]["targets"]),
                                             generator=generator)
+        # Adapters start FROZEN: Stage 1 is connector-only. train.py unfreezes them at Stage 2
+        # (B is zero-initialized, so a frozen adapter contributes nothing to the Stage-1 forward).
+        self.set_adapter_trainable(False)
 
     # -- devices / params -----------------------------------------------------------------------
 
@@ -86,6 +89,19 @@ class SigLIPQwenVLM(nn.Module):
         for ad in self.adapters.values():
             params += [ad.A, ad.B]
         return params
+
+    def set_adapter_trainable(self, flag: bool) -> None:
+        """Freeze/unfreeze every adapter A/B factor (Stage 1 frozen; Stage 2+ trainable)."""
+        for ad in self.adapters.values():
+            ad.A.requires_grad_(flag)
+            ad.B.requires_grad_(flag)
+
+    def trainable_param_counts(self) -> dict[str, int]:
+        """Trainable parameter counts by group, derived from requires_grad (for per-stage logging)."""
+        conn = sum(p.numel() for p in self.connector_parameters() if p.requires_grad)
+        adapt = sum(p.numel() for p in self.adapter_parameters() if p.requires_grad)
+        total = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        return {"connector": int(conn), "adapters": int(adapt), "total": int(total)}
 
     # -- input assembly -------------------------------------------------------------------------
 
