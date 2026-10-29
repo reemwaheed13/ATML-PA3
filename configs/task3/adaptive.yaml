@@ -1,6 +1,9 @@
 # Task 3 / Step 5: adaptive sampling (simulated on supplied pools). (handout p13-p14)
 task: task3_adaptive
 
+# Reuse the offline config's data/models/splits/orders/columns (one source of truth).
+offline_config: configs/task3/offline.yaml
+
 # Reveal rollouts in the saved random orders; check stopping after n candidates, else stop at 32.
 # Both controllers return the current self-consistency answer, so the comparison isolates
 # stopping rather than the final selector. Recompute scores/calibration/ranks using only
