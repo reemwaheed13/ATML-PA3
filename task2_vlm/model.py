@@ -200,34 +200,94 @@ class SigLIPQwenVLM(nn.Module):
         return [self.tokenizer.decode(row, skip_special_tokens=True).strip() for row in gen]
 
 
-def sanity_checks(model: SigLIPQwenVLM, cfg: dict[str, Any], *, sample_features=None) -> dict[str, Any]:
-    """Verify frozen parameter sets, connector gradients, feature shapes, and split isolation. (p9)
+def sanity_checks(model: SigLIPQwenVLM, cfg: dict[str, Any], *, n: int = 2) -> dict[str, Any]:
+    """Verify frozen parameter sets, connector gradients, feature/visual shapes, split isolation. (p9)
 
-    Returns a report dict. The connector-gradient check runs a tiny forward/backward on a single
-    synthetic example (or real cached features if provided) and asserts connector grads are non-None
-    while the Qwen backbone stays frozen.
+    Runs ONE real forward/backward on cached features for `n` manifest images and asserts that every
+    connector parameter has a non-None, finite, nonzero gradient (autograd actually reaches the
+    connector through the frozen backbone). Also asserts feature shape [B,196,768] and visual-embed
+    shape [B,196,1024] (or [B,49,768]->[B,49,1024] for compress49). Raises on any failure.
     """
+    import json
+    import os
+    from common.paths import REPO_ROOT
+    from .data import VLMExample, format_vlm_example
+    from .features import load_cached_features
+
     report: dict[str, Any] = {}
 
-    backbone_trainable = [n for n, p in model.qwen.named_parameters()
-                          if p.requires_grad and "lora" not in n.lower()
-                          and not _is_adapter_param(model, p)]
+    # --- frozen parameter sets ---------------------------------------------------------------
+    backbone_trainable = [nm for nm, p in model.qwen.named_parameters()
+                          if p.requires_grad and not _is_adapter_param(model, p)]
     report["qwen_backbone_all_frozen"] = len(backbone_trainable) == 0
     report["connector_trainable"] = all(p.requires_grad for p in model.connector_parameters())
     report["num_adapters"] = len(model.adapters)
+    assert report["qwen_backbone_all_frozen"], f"Qwen backbone not fully frozen: {backbone_trainable[:5]}"
+    assert report["connector_trainable"], "connector parameters are not all trainable"
 
-    # Split isolation: no eval image appears as a training image in the manifest.
-    import json, os
-    from common.paths import REPO_ROOT
+    # --- load a small real batch of cached features ------------------------------------------
     manifest_path = os.fspath(REPO_ROOT / cfg.get("manifest", "splits/task2/image_manifest.json"))
-    if os.path.exists(manifest_path):
-        with open(manifest_path, encoding="utf-8") as f:
-            manifest = json.load(f)
-        subsets = set(manifest.values())
-        # Each image id maps to exactly one subset, so train/dev/test are image-disjoint by design.
-        report["manifest_images"] = len(manifest)
-        report["subsets_present"] = sorted(subsets)
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+    batch: list[tuple[int, torch.Tensor]] = []
+    for image_id in manifest:
+        try:
+            feats = load_cached_features(cfg, int(image_id), device=model.device)
+        except Exception:
+            continue
+        batch.append((int(image_id), feats))
+        if len(batch) >= n:
+            break
+    if not batch:
+        raise RuntimeError("sanity_checks needs cached features; run task2_vlm.features first.")
 
+    ve = cfg["models"]["vision_encoder"]
+    num_patches, feat_dim = int(ve.get("num_patches", 196)), int(ve["feature_dim"])
+    features = torch.stack([f for _, f in batch])
+    assert tuple(features.shape[1:]) == (num_patches, feat_dim), \
+        f"feature shape {tuple(features.shape)} != (*, {num_patches}, {feat_dim})"
+    report["feature_shape"] = list(features.shape)
+
+    # --- visual-embed shapes (incl. compress49 pooled path) ----------------------------------
+    pcfg = PrecisionConfig(compute_dtype=cfg.get("precision", {}).get("compute_dtype", "float16"),
+                           fp32_master=False, grad_clip_norm=1.0)
+    amp = model.device.type == "cuda"
+    out_dim = int(cfg["models"]["connector"].get("out_dim", model.qwen.config.hidden_size))
+    exp_visual = 49 if model.pool_visual else num_patches
+    if model.pool_visual:
+        assert tuple(pool_2x2(features).shape[1:]) == (49, feat_dim), \
+            f"pooled feature shape {tuple(pool_2x2(features).shape)} != (*, 49, {feat_dim})"
+    visual = model._visual_embeds(features, pcfg, amp)
+    assert tuple(visual.shape) == (len(batch), exp_visual, out_dim), \
+        f"visual shape {tuple(visual.shape)} != ({len(batch)}, {exp_visual}, {out_dim})"
+    report["visual_shape"] = list(visual.shape)
+    report["num_visual_tokens"] = exp_visual
+
+    # --- one forward/backward: connector grads must be non-None, finite, nonzero --------------
+    caps = cfg.get("train", {}).get("content_token_caps", {})
+    examples = []
+    for image_id, _ in batch:
+        fe = format_vlm_example(model.tokenizer, "Describe this image.", "a test caption",
+                                answer_cap=int(caps.get("caption_target", 64)),
+                                question_cap=int(caps.get("question", 80)),
+                                enable_thinking=model.enable_thinking)
+        examples.append(VLMExample(image_id=image_id, component="sanity", input_ids=fe["input_ids"],
+                                   labels=fe["labels"], insert_at=fe["insert_at"],
+                                   n_answer_tokens=fe["n_answer_tokens"]))
+
+    model.zero_grad(set_to_none=True)
+    out = model(examples, features, pcfg=pcfg, amp_enabled=amp, with_image=True)
+    out["loss"].backward()
+    for name, p in model.connector.named_parameters():
+        assert p.grad is not None, f"connector.{name} grad is None (autograd not reaching connector)"
+        assert torch.isfinite(p.grad).all(), f"connector.{name} grad has non-finite values"
+        assert float(p.grad.abs().sum()) > 0.0, f"connector.{name} grad is all zeros"
+    model.zero_grad(set_to_none=True)
+    report["connector_grad_ok"] = True
+
+    # --- split isolation ---------------------------------------------------------------------
+    report["manifest_images"] = len(manifest)
+    report["subsets_present"] = sorted(set(manifest.values()))   # one subset per image id by design
     return report
 
 
