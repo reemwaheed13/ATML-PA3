@@ -13,6 +13,29 @@ data:
   # Token measurements: sampled-token logp and full-distribution kl_u_p are RAW model dists
   # (before sampling transforms). Images not needed for offline analysis.
 
+# Parquet column names, ISOLATED here so matching the real ATML-PA3-Data schema is a config edit,
+# not a code change. PLACEHOLDERS until the supplied README.MD is confirmed — verify/adjust names
+# against README.MD before the first run. The logical keys on the right are what the code uses
+# (and what task3_ttc/signals.py documents as the per-rollout dict schema).
+columns:
+  join:
+    dataset: dataset
+    sample_id: sample_id
+    rollout_id: rollout_id
+  generations:
+    text: text
+    token_ids: token_ids
+    length: length
+    extracted: extracted_answer
+    gold: gold_answer
+  probability:
+    logp: logp                      # per-token sampled-token log-probability
+    kl_u_p: kl_u_p                  # per-token KL(U || p_t)
+  attention:                        # VLM only (attention_metrics.parquet): per-token group totals
+    image: attn_image
+    prompt: attn_prompt
+    generated: attn_generated
+
 splits:
   # Sort 1,000 question IDs lexicographically, permute with NumPy default_rng(6304):
   # first 200 dev, remaining 800 held-out eval. Keep all rollouts of a question together (p11).
