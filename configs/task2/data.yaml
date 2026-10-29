@@ -67,6 +67,16 @@ annotations:
 # Image manifest (image_id -> subset) written by the selection step; features.py caches from it.
 manifest: splits/task2/image_manifest.json
 
+# SigLIP feature extraction + cache (features.py reads this config). (p7)
+vision_encoder:
+  name: google/siglip-base-patch16-224
+  num_patches: 196                 # 14x14 final patch features, spatial order
+  feature_dim: 768
+features:
+  cache_subdir: features           # under DRIVE_ROOT/task2
+  batch_size: 32
+  cache_dtype: float16
+
 grounding:
   # presence/counting generation + dev/test freeze. The presence:counting split of the combined
   # annotation-derived dev (24) / test (64) pairs is unspecified by the handout; split evenly and
