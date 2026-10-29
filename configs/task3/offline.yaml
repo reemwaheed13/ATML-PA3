@@ -36,6 +36,16 @@ columns:
     prompt: attn_prompt
     generated: attn_generated
 
+# MathVista question metadata columns (required for the MathVista equivalence rules: answer type,
+# choices -> option letters, precision rounding). PLACEHOLDERS — fill the real column names from
+# README.MD. Logical keys on the left are what the equivalence code consumes. Used for the VLM
+# (MathVista) model only; omit/empty for the MATH LLM (math-verify).
+metadata_columns:
+  answer_type: answer_type          # e.g. float | integer | multi_choice | free_form
+  question_type: question_type
+  choices: choices                  # list column -> represented as option letters A, B, ...
+  precision: precision              # int; decimal places for float equivalence
+
 splits:
   # Sort 1,000 question IDs lexicographically, permute with NumPy default_rng(6304):
   # first 200 dev, remaining 800 held-out eval. Keep all rollouts of a question together (p11).

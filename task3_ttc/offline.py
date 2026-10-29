@@ -51,6 +51,7 @@ def _question_stats(q: t3data.QuestionRollouts, *, has_vision: bool,
                     metadata=None) -> dict[str, Any]:
     """Precompute groups/correctness and per-rollout signals (L/K/V + token length) for a question."""
     rollouts = q.rollouts
+    metadata = q.metadata if metadata is None else metadata   # MathVista equivalence rules
     answers = [r.get("extracted") for r in rollouts]
     groups = t3data.answer_groups(answers, q.dataset, metadata)
     correct = t3data.correctness_labels(groups, q.gold, q.dataset, answers, metadata)

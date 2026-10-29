@@ -34,6 +34,7 @@ class QuestionRollouts:
     sample_id: str
     rollouts: list[dict[str, Any]]   # per-rollout: text, token_ids, length, extracted, logp, kl_u_p, (attn)
     gold: Any                        # for retrospective analysis only; NOT for selection/stopping
+    metadata: Any = None             # MathVista answer_type/choices/precision (equivalence rules)
 
 
 def _expand(path: str) -> str:
@@ -65,10 +66,12 @@ def load_joined(cfg: dict[str, Any], model_spec: dict[str, Any]) -> list[Questio
 
     g, p = cols["generations"], cols["probability"]
     a = cols.get("attention", {})
+    md_cols = cfg.get("metadata_columns", {}) if model_spec.get("type") == "vlm" else {}
 
     out: list[QuestionRollouts] = []
     for sample_id, grp in df.groupby(jk["sample_id"], sort=True):
         grp = grp.sort_values(jk["rollout_id"])
+        metadata = _extract_metadata(grp.iloc[0], md_cols) if md_cols else None
         rollouts: list[dict[str, Any]] = []
         gold = None
         for _, row in grp.iterrows():
@@ -91,8 +94,28 @@ def load_joined(cfg: dict[str, Any], model_spec: dict[str, Any]) -> list[Questio
             rollouts.append(r)
             gold = row.get(g["gold"], gold)
         out.append(QuestionRollouts(dataset=str(model_spec["dataset"]), sample_id=str(sample_id),
-                                    rollouts=rollouts, gold=gold))
+                                    rollouts=rollouts, gold=gold, metadata=metadata))
     return out
+
+
+def _extract_metadata(row, md_cols: dict[str, str]) -> Optional[dict]:
+    """Pull MathVista question metadata from a row using the configured column names.
+
+    Logical keys consumed by the equivalence rules: answer_type (float|integer|number|...),
+    question_type, choices (list -> option letters), precision (int, for float rounding).
+    """
+    md: dict[str, Any] = {}
+    for logical, col in md_cols.items():
+        if col in row and row[col] is not None:
+            md[logical] = row[col]
+    if "choices" in md:
+        md["choices"] = _as_list(md["choices"])
+    if "precision" in md:
+        try:
+            md["precision"] = int(md["precision"])
+        except (TypeError, ValueError):
+            md.pop("precision")
+    return md or None
 
 
 def _as_list(x) -> list:
