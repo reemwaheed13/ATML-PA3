@@ -1,0 +1,11 @@
+# Task 2 SMOKE: cache SigLIP features for only a handful of the frozen manifest images, to verify
+# extraction -> FP16 cache -> load round-trips. Run after smoke_data (or the full data step). NOT graded.
+#   python -m task2_vlm.features --config configs/task2/smoke_features.yaml
+inherit: data.yaml
+task: task2_features_smoke
+
+features:
+  cache_subdir: features           # same cache as the real run (idempotent; reused if present)
+  batch_size: 8
+  cache_dtype: float16
+  limit_images: 8                  # cap images cached in the smoke

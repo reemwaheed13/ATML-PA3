@@ -183,6 +183,10 @@ def run(cfg: dict[str, Any]) -> None:
         split = make_splits(list(qmap), seed=int(cfg["splits"]["seed"]),
                             dev_size=int(cfg["splits"]["dev_size"]))
         eval_ids = split["eval"]
+        # Smoke runs can cap the evaluated questions (offline.limit_questions); 0/absent = all.
+        limit_q = int(cfg["offline"].get("limit_questions", 0) or 0)
+        if limit_q:
+            eval_ids = eval_ids[:limit_q]
 
         n_roll = max(len(q.rollouts) for q in questions)
         orders = generate_orders(n_roll, n_orders, seed=order_seed)

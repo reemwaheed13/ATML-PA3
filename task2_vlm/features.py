@@ -98,9 +98,15 @@ def cache_features(cfg: dict[str, Any]) -> dict[str, Any]:
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest: dict[str, str] = json.load(f)
 
+    # Smoke runs can cap the number of images cached (features.limit_images); 0/absent = all.
+    items = list(manifest.items())
+    limit = int(cfg.get("features", {}).get("limit_images", 0) or 0)
+    if limit:
+        items = items[:limit]
+
     cache = feature_cache_dir(cfg)
     todo: list[tuple[str, str]] = []            # (cache_path, image_path)
-    for image_id, subset_key in manifest.items():
+    for image_id, subset_key in items:
         cp = _cache_path(cfg, int(image_id))
         if not os.path.exists(cp):
             todo.append((cp, _image_path(cfg, subset_key, int(image_id))))
@@ -129,8 +135,8 @@ def cache_features(cfg: dict[str, Any]) -> dict[str, Any]:
     else:
         peak = 0
 
-    total = len(manifest)
-    total_bytes = sum(os.path.getsize(_cache_path(cfg, int(i))) for i in manifest
+    total = len(items)
+    total_bytes = sum(os.path.getsize(_cache_path(cfg, int(i))) for i, _ in items
                       if os.path.exists(_cache_path(cfg, int(i))))
     return {
         "type": "feature_cache",

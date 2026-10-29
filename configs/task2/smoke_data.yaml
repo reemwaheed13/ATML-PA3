@@ -1,0 +1,26 @@
+# Task 2 SMOKE: freeze tiny COCO/VQAv2 selections so the pipeline (selection -> manifest ->
+# features -> sampler) round-trips on a handful of images in minutes. NOT graded.
+#   python -m task2_vlm.data --config configs/task2/smoke_data.yaml
+inherit: data.yaml
+task: task2_data_smoke
+
+splits:
+  coco_captions:
+    train_images: 8                # 8 x 3 = 24 caption examples
+    train_examples: 24
+    dev_images: 4
+  natural_vqav2:
+    train_pairs: 10
+    dev_pairs: 4
+    test_pairs: 4
+    train_type_counts: {yes_no: 4, number: 2, other: 4}
+    dev_type_counts: {yes_no: 2, number: 1, other: 1}
+    test_type_counts: {yes_no: 2, number: 1, other: 1}
+
+grounding:
+  max_presence_pool: 20
+  max_counting_pool: 20
+  dev_presence_pairs: 2
+  dev_counting_pairs: 2
+  test_presence_pairs: 2
+  test_counting_pairs: 2

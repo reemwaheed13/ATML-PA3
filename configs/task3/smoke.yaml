@@ -6,8 +6,6 @@ run_id: smoke_task3
 offline:
   budgets: [1, 2, 4]
   n_orders: 2
-
-smoke:
-  limit_questions: 10            # only load/join a few questions per dataset
+  limit_questions: 10            # cap evaluated questions per dataset (offline.run honors this)
 report:
   bootstrap_resamples: 50
