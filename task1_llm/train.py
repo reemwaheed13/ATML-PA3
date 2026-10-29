@@ -31,7 +31,14 @@ import logging
 import os
 from typing import Any
 
+# Allocator config MUST be set before torch initializes CUDA. expandable_segments lets the caching
+# allocator grow/shrink segments instead of reserving fixed blocks, which cuts the fragmentation
+# that made Full-FT+L2-SP OOM right after a checkpoint save (the failing 1.24 GiB alloc at update
+# 11). setdefault so an explicit override in the environment still wins.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import torch
+import torch.nn.functional as F
 
 from common import SEED
 from common.checkpoint import (
@@ -50,7 +57,7 @@ from common.resources import Timer, count_params, file_size_bytes, peak_gpu_byte
 from common.seeding import capture_rng_state, restore_rng_state, seed_all
 
 from .adapters import export_initial_factors
-from .data import iterate_microbatches, load_kept_indices, load_metamathqa
+from .data import IGNORE_INDEX, iterate_microbatches, load_kept_indices, load_metamathqa
 from .l2sp import build_l2sp
 from .model import (
     build_optimizer_and_scheduler,
@@ -64,6 +71,144 @@ from .model import (
 log = logging.getLogger(__name__)
 
 _FULL_METHODS = ("full_ft", "full_ft_l2sp")
+
+# Default row-chunk for the response-only lm_head: logits are [rows, vocab] (vocab ~152k), so we
+# cap the transient logits tensor by projecting at most this many response positions at a time.
+# Response tokens per microbatch are usually below this, so it is typically a single chunk.
+_DEFAULT_LOGITS_CHUNK_ROWS = 512
+
+# -----------------------------------------------------------------------------------------------
+# Response-only loss (OOM fix; see README "Memory (OOM avoidance on the L4)").
+#
+# HF's model(..., labels=...) materializes full [B, T, vocab] logits (2 x 2048 x 151936 fp16 =
+# 1.24 GiB, plus a same-shape fp32 upcast inside the cross-entropy) for EVERY position, then masks
+# all but the response tokens. On the L4 that transient is what OOMs Full-FT+L2-SP. Instead we run
+# the decoder to final hidden states, select only the positions whose shifted label != -100, and
+# apply lm_head to just those rows (chunked). The math is unchanged: token-SUM cross-entropy in
+# FP32 over exactly the same response tokens (verified against the HF loss by _verify_response_loss
+# to ~1e-4). Normalization over the effective batch still happens in the caller (scale by
+# 1/total_tokens before backward), exactly as before.
+# -----------------------------------------------------------------------------------------------
+
+
+def _decoder_and_head(model):
+    """Return (decoder, lm_head): the backbone that yields final hidden states and the output head.
+
+    Uses the standard HF accessors so this stays correct across Causal-LM architectures: the loss
+    path is `lm_head(decoder(...).last_hidden_state)`, the same two modules model(..., labels=...)
+    composes internally.
+    """
+    decoder = model.get_decoder() if hasattr(model, "get_decoder") else model.model
+    head = model.get_output_embeddings()
+    if head is None:
+        head = model.lm_head
+    return decoder, head
+
+
+def _select_response_rows(decoder, input_ids, attn, labels, *, pcfg, device, amp_enabled):
+    """Run the decoder and return (sel_hidden, sel_labels) for response positions only.
+
+    Mirrors HF's shift: the hidden state at position t predicts the token at t+1, so we keep hidden
+    positions [:-1] whose shifted label (labels[:, 1:]) is not the ignore index. sel_hidden stays
+    attached to the backbone graph (grad flows) unless the caller is under no_grad.
+    """
+    with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
+        hidden = decoder(input_ids=input_ids, attention_mask=attn)[0]  # [B, T, H]
+    shift_labels = labels[:, 1:]
+    mask = shift_labels != IGNORE_INDEX
+    sel_hidden = hidden[:, :-1, :][mask]  # [N, H]
+    sel_labels = shift_labels[mask]       # [N]
+    return sel_hidden, sel_labels
+
+
+def _backward_response_loss(decoder, head, batch, total_tokens, *, scaler, pcfg, device,
+                            amp_enabled, chunk_rows):
+    """Backward the response-only token-SUM loss for one microbatch; return its float token-SUM.
+
+    Two-stage to bound peak memory to a single logits chunk: (1) detach the selected hidden states
+    to a leaf and backward each chunk's lm_head->CE graph into leaf.grad (freeing the [rows, vocab]
+    logits after each chunk); (2) push the accumulated leaf.grad through the backbone exactly once.
+    lm_head's own gradient (and, under weight tying, the shared embedding's) accumulates from the
+    chunk backwards, so the result equals a single full backward. The chunk losses are scaled by
+    1/total_tokens (effective-batch normalization) and by the AMP scale, identically to before.
+    """
+    input_ids = batch.input_ids.to(device)
+    attn = batch.attention_mask.to(device)
+    labels = batch.labels.to(device)
+
+    sel_hidden, sel_labels = _select_response_rows(
+        decoder, input_ids, attn, labels, pcfg=pcfg, device=device, amp_enabled=amp_enabled
+    )
+    n = int(sel_labels.numel())
+    if n == 0:
+        return 0.0
+
+    leaf = sel_hidden.detach().requires_grad_(True)
+    loss_sum = 0.0
+    for s in range(0, n, chunk_rows):
+        e = min(s + chunk_rows, n)
+        with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
+            logits = head(leaf[s:e])  # [rows, vocab], fp16 under autocast
+        # FP32 token-SUM CE over this chunk — HF upcasts logits to fp32 before the softmax too.
+        chunk = F.cross_entropy(logits.float(), sel_labels[s:e], reduction="sum")
+        scaler.scale(chunk / total_tokens).backward()
+        loss_sum += float(chunk.detach())
+    # leaf.grad now holds the summed (scaled) hidden gradient; backprop it through the backbone once.
+    sel_hidden.backward(leaf.grad)
+    return loss_sum
+
+
+@torch.no_grad()
+def _response_loss_sum_value(decoder, head, input_ids, attn, labels, *, pcfg, device,
+                             amp_enabled, chunk_rows):
+    """Value-only (no backward) response-only token-SUM CE; returns (loss_sum, n_tokens)."""
+    sel_hidden, sel_labels = _select_response_rows(
+        decoder, input_ids, attn, labels, pcfg=pcfg, device=device, amp_enabled=amp_enabled
+    )
+    n = int(sel_labels.numel())
+    loss_sum = 0.0
+    for s in range(0, n, chunk_rows):
+        e = min(s + chunk_rows, n)
+        with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
+            logits = head(sel_hidden[s:e])
+        loss_sum += float(F.cross_entropy(logits.float(), sel_labels[s:e], reduction="sum"))
+    return loss_sum, n
+
+
+@torch.no_grad()
+def _verify_response_loss(model, decoder, head, batch, *, pcfg, device, amp_enabled, chunk_rows,
+                          tol=1e-4):
+    """Assert the response-only loss equals HF's model(..., labels=...) loss on one microbatch.
+
+    Compares the per-token MEAN loss (O(1), so `tol` is a plain absolute tolerance). Runs the full
+    HF path once (the only place the full [B,T,vocab] logits are ever built); done at the first
+    update where GPU headroom is highest. Raises if they disagree beyond `tol`.
+    """
+    input_ids = batch.input_ids.to(device)
+    attn = batch.attention_mask.to(device)
+    labels = batch.labels.to(device)
+    n_i = int((labels[:, 1:] != IGNORE_INDEX).sum())
+    if n_i == 0:
+        return None
+
+    with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
+        out = model(input_ids=input_ids, attention_mask=attn, labels=labels)
+    old_mean = float(out.loss)  # HF mean over non-ignored response tokens
+    new_sum, n_new = _response_loss_sum_value(
+        decoder, head, input_ids, attn, labels,
+        pcfg=pcfg, device=device, amp_enabled=amp_enabled, chunk_rows=chunk_rows,
+    )
+    new_mean = new_sum / n_new if n_new else 0.0
+    diff = abs(old_mean - new_mean)
+    result = {"type": "loss_equivalence_check", "hf_mean_loss": old_mean,
+              "response_only_mean_loss": new_mean, "abs_diff": diff,
+              "n_response_tokens": n_i, "tol": tol, "ok": diff <= tol}
+    if not result["ok"]:
+        raise RuntimeError(
+            f"Response-only loss disagrees with HF loss: hf={old_mean:.6f} "
+            f"new={new_mean:.6f} abs_diff={diff:.3e} > tol={tol:.3e}"
+        )
+    return result
 
 
 def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None = None) -> None:
@@ -171,6 +316,12 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
 
     trainable = [p for p in model.parameters() if p.requires_grad]
 
+    # Response-only loss plumbing (see helpers above): the decoder/head we drive directly instead
+    # of model(..., labels=...), and the row-chunk for the lm_head projection.
+    decoder, head = _decoder_and_head(model)
+    chunk_rows = int(cfg.get("train", {}).get("logits_chunk_rows", _DEFAULT_LOGITS_CHUNK_ROWS))
+    verify_loss = bool(cfg.get("logging", {}).get("verify_response_loss", True))
+
     # --- data ----------------------------------------------------------------------------
     try:
         kept = load_kept_indices()["kept_indices"]
@@ -233,7 +384,10 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
         return path
 
     # --- training loop -------------------------------------------------------------------
-    peak_log_updates = {1, 2, 5} if is_smoke else set()
+    # Always snapshot peak GPU at update 11 (the step Full-FT+L2-SP used to OOM on the L4); the
+    # smoke run also samples early updates. Peak is also logged after every checkpoint save below.
+    peak_log_updates = {1, 2, 5, 11} if is_smoke else {11}
+    verified = not verify_loss  # run the one-time loss-equivalence check at most once
     stopped_early = False
     with Timer() as timer:
         while update < total_updates:
@@ -253,27 +407,41 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
                 update += 1
                 continue
 
+            # One-time check (first real update, when GPU headroom is highest) that the memory-lean
+            # response-only loss equals HF's model(..., labels=...) loss to ~1e-4. This is the ONLY
+            # place the full [B,T,vocab] logits are ever built.
+            if not verified:
+                first = next((b for b, c in zip(micro_batches, token_counts) if c > 0), None)
+                if first is not None:
+                    chk = _verify_response_loss(
+                        model, decoder, head, first, pcfg=pcfg, device=device,
+                        amp_enabled=amp_enabled, chunk_rows=chunk_rows,
+                    )
+                    if chk is not None:
+                        logger.log(chk)
+                        print(f"[train] loss-equivalence check OK: hf={chk['hf_mean_loss']:.6f} "
+                              f"response_only={chk['response_only_mean_loss']:.6f} "
+                              f"abs_diff={chk['abs_diff']:.2e}", flush=True)
+                        verified = True
+
+            # Response-only token-SUM loss per microbatch; scaled by 1/total_tokens so the
+            # accumulated gradient is exactly grad of (sum per-token losses)/(eff-batch response
+            # tokens) — the same normalization and math as the old full-logits path.
             sft_sum = 0.0
             for batch, n_i in zip(micro_batches, token_counts):
                 if n_i == 0:
                     continue
-                input_ids = batch.input_ids.to(device)
-                attn = batch.attention_mask.to(device)
-                labels = batch.labels.to(device)
+                sft_sum += _backward_response_loss(
+                    decoder, head, batch, total_tokens, scaler=scaler, pcfg=pcfg,
+                    device=device, amp_enabled=amp_enabled, chunk_rows=chunk_rows,
+                )
 
-                with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
-                    out = model(input_ids=input_ids, attention_mask=attn, labels=labels)
-
-                # out.loss is the per-token mean; (mean * n_i) is this microbatch's token-SUM.
-                # Scaling by 1/total_tokens up front makes the accumulated gradient exactly the
-                # gradient of (sum of per-token losses) / (effective-batch response tokens).
-                token_sum_loss = out.loss * n_i
-                scaler.scale(token_sum_loss / total_tokens).backward()
-                sft_sum += float(token_sum_loss.detach())
-
-            # L2-SP once per update, after the data terms (added undiluted by the normalization).
+            # L2-SP once per update, after the data terms: add scale*lambda*(theta-theta0) straight
+            # into each grad (no autograd graph, theta0 streamed from pinned CPU). Undiluted by the
+            # 1/total_tokens normalization above.
+            l2sp_terms = None
             if l2sp is not None:
-                scaler.scale(l2sp.lam * l2sp.penalty(model)).backward()
+                l2sp_terms = l2sp.accumulate_grad(model, scale=scaler.get_scale())
 
             info = optimizer_step(optimizer, scaler, trainable, pcfg,
                                   scheduler=scheduler, step=update + 1)
@@ -289,11 +457,12 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
                 "scale": info["scale"],
                 "response_tokens": total_tokens,
             }
-            if l2sp is not None:
-                terms = l2sp.terms(model)
-                record["omega"] = terms["omega"]
-                record["lambda_omega"] = terms["lambda_omega"]
-                record["total_loss"] = eff_loss + terms["lambda_omega"]
+            if l2sp_terms is not None:
+                record["omega"] = l2sp_terms["omega"]
+                record["lambda_omega"] = l2sp_terms["lambda_omega"]
+                record["total_loss"] = eff_loss + l2sp_terms["lambda_omega"]
+                # Per-update host->device cost of streaming theta0 (reference-transfer overhead, p4).
+                record["l2sp_transfer_seconds"] = l2sp_terms["transfer_seconds"]
             logger.log(record)
             print(f"[train] {run_id} {update}/{total_updates} loss={eff_loss:.4f} "
                   f"lr={record['lr']:.2e} scale={info['scale']:g} skipped={info['skipped']}",
@@ -310,6 +479,10 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
 
             if update in save_at:
                 save_recovery(update, disp)
+                # Log peak GPU right after every checkpoint save (save + any CPU offload can shift
+                # the high-water mark; this is where the old OOM surfaced).
+                logger.log({"type": "peak_gpu", "update": update, "after": "checkpoint_save",
+                            "peak_gpu_bytes": peak_gpu_bytes()})
 
             # Simulated-disconnect stop: break after finishing this update (and its checkpoint).
             if stop_after is not None and update >= stop_after:
@@ -329,6 +502,8 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
     # Ensure a final checkpoint exists even if total_updates wasn't in save_at_updates.
     if total_updates not in save_at:
         save_recovery(update)
+        logger.log({"type": "peak_gpu", "update": update, "after": "checkpoint_save",
+                    "peak_gpu_bytes": peak_gpu_bytes()})
 
     # --- resource summary ----------------------------------------------------------------
     trainable_params, total_params = count_params(model)

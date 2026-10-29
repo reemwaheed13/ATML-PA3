@@ -37,6 +37,28 @@ tracks the actual parameter trajectory rather than wall-clock iterations. Skips 
 the (normally tiny) attempted-vs-applied gap is auditable after a run. See
 `configs/task1/_base.yaml` (`train.update_counting: attempted`).
 
+### Memory (OOM avoidance on the L4)
+
+The heaviest Task-1 run (Full FT + L2-SP) is memory-bound on the 22 GB L4. Three measures keep it
+in budget without changing the recipe or the loss:
+
+- **Response-only logits.** `task1_llm/train.py` does **not** pass `labels` to the model (HF would
+  materialize full `[batch, seq, vocab]` logits — `2 × 2048 × 151936` fp16 ≈ 1.24 GiB, plus an
+  equal-shape fp32 upcast inside its cross-entropy — for *every* position). Instead it runs the
+  decoder to final hidden states, selects only positions whose shifted label `!= -100`, and applies
+  `lm_head` to just those rows (chunked), computing the token-SUM cross-entropy in FP32. The math is
+  identical; a one-time check at the first update asserts it equals HF's loss to ~1e-4 (logged as
+  `loss_equivalence_check`).
+- **L2-SP reference off-GPU.** `theta0` lives in **pinned CPU** memory; the penalty gradient
+  `lambda·(theta − theta0)` is added straight into `p.grad` (no autograd graph, no GPU-resident
+  copy). The per-update host→device transfer time is logged as `l2sp_transfer_seconds`.
+- **`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** (set at the top of `train.py` before torch
+  imports, and in `colab/setup.ipynb`) reduces allocator fragmentation — the proximate cause of the
+  failing 1.24 GiB alloc right after a checkpoint save.
+
+Peak GPU is logged at update 11 and after every checkpoint save (plus early updates on the smoke
+run), so the high-water mark is auditable.
+
 ## Repository layout
 
 ```
