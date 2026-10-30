@@ -323,8 +323,16 @@ def evaluate_condition(eval_cfg: dict[str, Any], label: str, train_cfg: dict[str
     results.update(extra)  # merge-check stats for adapter runs
 
     for name, bench_cfg in benchmarks.items():
+        # Per-benchmark batch size: global `batch_size`, optionally overridden by
+        # benchmarks.<name>.batch_size (BoolQ OOMs at 32 on an L4 -> 16). A numeric value is
+        # pushed onto the live LM via batch_size_per_gpu (lm.batch_size is a property reading it in
+        # lm-eval 0.4.13); "auto" leaves lm-eval's own batch-size selection untouched.
+        bench_bs = bench_cfg.get("batch_size", batch_size)
+        if bench_bs != "auto":
+            lm.batch_size_per_gpu = int(bench_bs)
         agg, samples = run_benchmark(
             lm, name, bench_cfg, num_fewshot=num_fewshot, limit=limit, save_samples=save_samples)
+        agg["batch_size"] = int(bench_bs) if bench_bs != "auto" else "auto"
         results["benchmarks"][name] = agg
         if save_samples and samples:
             with open(samples_dir / f"{name}.jsonl", "w", encoding="utf-8") as f:

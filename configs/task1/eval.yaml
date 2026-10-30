@@ -8,7 +8,8 @@ backend: hf                     # hf | vllm. Try vllm on the Colab L4 to speed G
                                 # HF is the fallback (see task1_llm/evaluate.py).
 precision: float16              # p3: evaluate all models in FP16, dropout disabled
 num_fewshot: 0                  # zero-shot (p3)
-batch_size: auto                # lm-eval batch size ("auto" lets it pick the largest that fits)
+batch_size: 32                  # global lm-eval batch size; per-benchmark override below ("auto"
+                                # lets lm-eval pick the largest that fits)
 # limit:                        # (optional) cap examples/benchmark; set in a smoke eval config
 
 # The seven evaluation conditions (p4 table). The shared baseline is the pretrained Qwen3-0.6B
@@ -49,6 +50,7 @@ benchmarks:
     method: likelihood
     use_chat_template: false
     primary_metric: acc
+    batch_size: 16              # BoolQ OOMs at the global 32 on an L4; drop to 16
   arc_easy:
     lm_eval_task: arc_easy      # Test / 2,376; candidate likelihood
     split: test

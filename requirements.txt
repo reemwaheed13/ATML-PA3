@@ -12,10 +12,11 @@
 transformers==5.20.2
 accelerate>=0.30
 
-# ▲ lm-eval (lm-evaluation-harness): task definitions MUST match the handout benchmarks
-#   (gsm8k_cot, hellaswag, boolq, arc_easy). Pin an exact release after confirming task names
-#   on Colab. vLLM backend is optional (see below) and only used if it runs on the L4.
-lm-eval>=0.4.3
+# lm-eval (lm-evaluation-harness): task definitions MUST match the handout benchmarks
+#   (gsm8k_cot, hellaswag, boolq, arc_easy). Pinned to the release validated on Colab; note
+#   lm.batch_size is a property over batch_size_per_gpu in this version (see evaluate.py).
+#   vLLM backend is optional (see below) and only used if it runs on the L4.
+lm-eval==0.4.13
 
 # ▲ math-verify: MATH equivalence for Task 3 (handout p11). Confirm import name + version on Colab.
 math-verify
