@@ -30,8 +30,24 @@ activation:
 probe_set:
   # Activation-probe set (p3 "Diagnostic and qualitative inputs"): 32 GSM8K test questions +
   # 32 HellaSwag validation contexts, sampled with seed 6304; IDs saved and reused for every
-  # model. See splits/ (activation_probe_ids).
+  # model. See splits/ (activation_probe_ids). Sampling depends only on dataset size + seed.
   n_gsm8k: 32
   n_hellaswag: 32
   seed: 6304
   ids_file: splits/task1/activation_probe_ids.json
+  # Probe sources (coords match evaluation; see task1_llm/data.py for the GSM8K repo).
+  gsm8k: {dataset: openai/gsm8k, config: main, split: test, question_field: question}
+  hellaswag: {dataset: Rowan/hellaswag, split: validation}
+  # GSM8K prompt = the gsm8k_cot non-thinking chat prompt; the user-message content is this
+  # template (the raw question, matching the task's doc_to_text input), then chat-templated with
+  # enable_thinking=False and a generation prompt. HellaSwag = stock context, no chat template.
+  gsm8k_user_template: "{question}"
+  hellaswag_add_special_tokens: false
+
+# Smoke subset for a quick Colab check (both diagnostics): one layer, the first couple of
+# checkpoints, and (activation) 2+2 probes. Enabled with the scripts' --smoke flag.
+smoke:
+  layers: [0]
+  max_checkpoints: 2
+  n_gsm8k: 2
+  n_hellaswag: 2
