@@ -34,15 +34,15 @@ import json
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import torch
 
-from common.paths import REPO_ROOT, RESULTS_DIR, ensure_dir
+from common.paths import REPO_ROOT, RESULTS_DIR, ensure_dir, task1_dir
 
 from . import diagnostics_common as dc
-from .data import GSM8K_CONFIG, GSM8K_DATASET, _render_token_ids
+from .data import GSM8K_CONFIG, GSM8K_DATASET
 
 log = logging.getLogger(__name__)
 
@@ -68,21 +68,38 @@ def hellaswag_context(doc: dict[str, Any]) -> str:
     return _hellaswag_preprocess(doc["activity_label"] + ": " + ctx)
 
 
-def _gsm8k_prompt_ids(tokenizer, question: str, template: str, enable_thinking: bool) -> list[int]:
-    """gsm8k_cot non-thinking chat prompt ids (user content from `template`, generation prompt on)."""
+def _flatten_ids(ids) -> list[int]:
+    """Coerce a tokenizer input_ids result to a flat list[int] (unwrap an accidental batch dim)."""
+    if ids and isinstance(ids[0], (list, tuple)):
+        ids = ids[0]
+    return [int(t) for t in ids]
+
+
+def gsm8k_prompt_text(tokenizer, question: str, template: str, enable_thinking: bool) -> str:
+    """Render the gsm8k_cot non-thinking chat prompt STRING (user content from `template`).
+
+    Renders with tokenize=False (stable across transformers versions; see data._render_token_ids)
+    and a generation prompt, enable_thinking=False — exactly the prompt evaluate.py fed the model
+    for gsm8k_cot, so it can be compared byte-for-byte against the stored lm-eval context.
+    """
     content = template.format(question=question)
-    return _render_token_ids(
-        tokenizer, [{"role": "user", "content": content}],
-        add_generation_prompt=True, enable_thinking=enable_thinking,
+    text = tokenizer.apply_chat_template(
+        [{"role": "user", "content": content}],
+        tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking,
     )
+    if not isinstance(text, str):
+        text = text[0] if isinstance(text, (list, tuple)) and text else str(text)
+    return text
+
+
+def _gsm8k_prompt_ids(tokenizer, text: str) -> list[int]:
+    """Token ids for an already-rendered chat prompt string (template placed the special tokens)."""
+    return _flatten_ids(tokenizer(text, add_special_tokens=False)["input_ids"])
 
 
 def _hellaswag_prompt_ids(tokenizer, text: str, add_special_tokens: bool) -> list[int]:
     """Stock completion-prompt ids for a HellaSwag context (no chat template)."""
-    ids = tokenizer(text, add_special_tokens=add_special_tokens)["input_ids"]
-    if ids and isinstance(ids[0], (list, tuple)):
-        ids = ids[0]
-    return [int(t) for t in ids]
+    return _flatten_ids(tokenizer(text, add_special_tokens=add_special_tokens)["input_ids"])
 
 
 # ---------------------------------------------------------------------------------------------
@@ -141,10 +158,11 @@ def create_probe_ids(cfg: dict[str, Any], *, force: bool = False) -> dict[str, A
 
 
 def build_probes(cfg: dict[str, Any], tokenizer, probe_ids: dict[str, Any]) -> list[dict[str, Any]]:
-    """Materialize probe prompts (token ids) for the frozen GSM8K + HellaSwag IDs.
+    """Materialize probe prompts for the frozen GSM8K + HellaSwag IDs.
 
-    Returns a list of {type: 'math'|'non_math', id, input_ids}. GSM8K uses the gsm8k_cot chat
-    prompt; HellaSwag uses the stock context with no ending.
+    Returns a list of {type: 'math'|'non_math', id, text, input_ids}. `text` is the exact prompt
+    string the tokens come from (the chat-templated gsm8k_cot prompt, or the stock HellaSwag
+    context with no ending), kept so the smoke check can compare it against lm-eval's prompt.
     """
     ps = cfg["probe_set"]
     enable_thinking = bool(cfg.get("model", {}).get("enable_thinking", False))
@@ -158,14 +176,90 @@ def build_probes(cfg: dict[str, Any], tokenizer, probe_ids: dict[str, Any]) -> l
     probes: list[dict[str, Any]] = []
     for i in gsm["indices"]:
         question = gsm_ds[int(i)][qfield]
-        probes.append({"type": "math", "id": int(i),
-                       "input_ids": _gsm8k_prompt_ids(tokenizer, question, gsm_template,
-                                                      enable_thinking)})
+        text = gsm8k_prompt_text(tokenizer, question, gsm_template, enable_thinking)
+        probes.append({"type": "math", "id": int(i), "text": text,
+                       "input_ids": _gsm8k_prompt_ids(tokenizer, text)})
     for i in hel["indices"]:
         text = hellaswag_context(hel_ds[int(i)])
-        probes.append({"type": "non_math", "id": int(i),
+        probes.append({"type": "non_math", "id": int(i), "text": text,
                        "input_ids": _hellaswag_prompt_ids(tokenizer, text, hel_add_special)})
     return probes
+
+
+# ---------------------------------------------------------------------------------------------
+# Smoke prompt check: compare our rendered GSM8K prompt against the one lm-eval actually used
+# ---------------------------------------------------------------------------------------------
+def _extract_lm_eval_context(arguments: Any) -> Optional[str]:
+    """Pull the context (prompt) string out of a logged lm-eval sample's `arguments`.
+
+    lm-eval 0.4.x stores the request args as the context followed by gen kwargs, as either a
+    nested list ([[context, {...}]]) or a dict ({"gen_args_0": {"arg_0": context, ...}}). The
+    context is always the first string encountered, so return that.
+    """
+    found: list[str] = []
+
+    def walk(node: Any) -> None:
+        if found:
+            return
+        if isinstance(node, str):
+            found.append(node)
+        elif isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+                if found:
+                    return
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+                if found:
+                    return
+
+    walk(arguments)
+    return found[0] if found else None
+
+
+def _lookup_lm_eval_prompt(path: str, doc_id: int) -> Optional[str]:
+    """Return the prompt lm-eval used for `doc_id` from a baseline per-example jsonl, or None."""
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            if int(rec.get("doc_id", -1)) == int(doc_id):
+                return _extract_lm_eval_context(rec.get("arguments"))
+    return None
+
+
+def smoke_prompt_check(probes: list[dict[str, Any]]) -> None:
+    """Compare the first GSM8K probe's prompt to lm-eval's; print a HellaSwag context preview.
+
+    The reference is the prompt lm-eval fed the baseline model, stored per-example at
+    DRIVE_ROOT/task1/eval/baseline/gsm8k.jsonl (matched on doc_id). If the file is missing, warn
+    instead of failing — the diagnostics proper do not depend on it.
+    """
+    math_probes = [p for p in probes if p["type"] == "math"]
+    non_math = [p for p in probes if p["type"] == "non_math"]
+
+    if math_probes:
+        probe = math_probes[0]
+        ours = probe["text"]
+        path = os.fspath(task1_dir("eval") / "baseline" / "gsm8k.jsonl")
+        print(f"\n[diag-act smoke] GSM8K prompt check (doc_id={probe['id']})", flush=True)
+        if not os.path.exists(path):
+            print(f"  WARNING: baseline samples file not found: {path}; skipping prompt match.")
+        else:
+            ref = _lookup_lm_eval_prompt(path, probe["id"])
+            if ref is None:
+                print(f"  WARNING: doc_id {probe['id']} not found in {path}; skipping prompt match.")
+            else:
+                print("  PROMPT MATCH" if ours == ref else "  PROMPT MISMATCH")
+                print(f"  --- ours ---\n{ours}")
+                print(f"  --- lm-eval ---\n{ref}")
+
+    if non_math:
+        print("\n[diag-act smoke] HellaSwag context (first 300 chars):", flush=True)
+        print(non_math[0]["text"][:300])
 
 
 # ---------------------------------------------------------------------------------------------
@@ -265,6 +359,7 @@ def run(cfg: dict[str, Any], *, smoke: bool = False) -> dict[str, Any]:
         math_p = [p for p in probes if p["type"] == "math"][:n_math]
         non_p = [p for p in probes if p["type"] == "non_math"][:n_non]
         probes = math_p + non_p
+        smoke_prompt_check(probes)  # verify our GSM8K prompt matches the one lm-eval evaluated
 
     z_by_probe, w0_by_layer = cache_downproj_inputs(cfg, tokenizer, probes, layers, device)
 

@@ -39,9 +39,10 @@ probe_set:
   gsm8k: {dataset: openai/gsm8k, config: main, split: test, question_field: question}
   hellaswag: {dataset: Rowan/hellaswag, split: validation}
   # GSM8K prompt = the gsm8k_cot non-thinking chat prompt; the user-message content is this
-  # template (the raw question, matching the task's doc_to_text input), then chat-templated with
-  # enable_thinking=False and a generation prompt. HellaSwag = stock context, no chat template.
-  gsm8k_user_template: "{question}"
+  # template, then chat-templated with enable_thinking=False and a generation prompt. The value
+  # is lm-eval 0.4.13's gsm8k_cot doc_to_text ("Q: {question}\nA:", with a real newline), i.e.
+  # exactly what our evaluation fed the model. HellaSwag = stock context, no chat template.
+  gsm8k_user_template: "Q: {question}\nA:"
   hellaswag_add_special_tokens: false
 
 # Smoke subset for a quick Colab check (both diagnostics): one layer, the first couple of
