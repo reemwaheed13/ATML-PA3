@@ -1,0 +1,28 @@
+{
+  "l2sp_final": {
+    "final_update": 1250,
+    "omega": 19.595180700858123,
+    "lambda_omega": 0.019595180700858122,
+    "sft_loss": 0.1636645824684498,
+    "total_loss": 0.18325976316930792,
+    "lambda_omega_share_of_total": 0.1069257122347951,
+    "mean_transfer_seconds_per_update": 0.2652166148225485
+  },
+  "displacement": [
+    {
+      "run": "full_ft",
+      "update": 625,
+      "displacement_l2": 9.982690626994286
+    },
+    {
+      "run": "full_ft",
+      "update": 1250,
+      "displacement_l2": 10.616147047409473
+    },
+    {
+      "run": "full_ft_l2sp",
+      "update": 1250,
+      "displacement_l2": 6.260220573195698
+    }
+  ]
+}

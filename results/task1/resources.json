@@ -1,0 +1,47 @@
+[
+  {
+    "run":"Full FT",
+    "trainable_params":596049920,
+    "train_time_min":73.9,
+    "peak_gpu_GiB":20.19,
+    "final_ckpt_MiB":6821.6,
+    "time_covers_resumed_part_only":false,
+    "l2sp_reference_bytes":null
+  },
+  {
+    "run":"Full FT + L2-SP",
+    "trainable_params":596049920,
+    "train_time_min":82.6,
+    "peak_gpu_GiB":20.19,
+    "final_ckpt_MiB":6821.6,
+    "time_covers_resumed_part_only":false,
+    "l2sp_reference_bytes":2384199680.0
+  },
+  {
+    "run":"LoRA-4",
+    "trainable_params":2523136,
+    "train_time_min":40.7,
+    "peak_gpu_GiB":8.3,
+    "final_ckpt_MiB":29.3,
+    "time_covers_resumed_part_only":true,
+    "l2sp_reference_bytes":null
+  },
+  {
+    "run":"LoRA-16",
+    "trainable_params":10092544,
+    "train_time_min":43.1,
+    "peak_gpu_GiB":8.44,
+    "final_ckpt_MiB":116.0,
+    "time_covers_resumed_part_only":false,
+    "l2sp_reference_bytes":null
+  },
+  {
+    "run":"OPLoRA-16",
+    "trainable_params":10092544,
+    "train_time_min":90.9,
+    "peak_gpu_GiB":9.24,
+    "final_ckpt_MiB":116.0,
+    "time_covers_resumed_part_only":false,
+    "l2sp_reference_bytes":null
+  }
+]

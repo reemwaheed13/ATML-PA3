@@ -1,0 +1,58 @@
+{
+  "label": "full_ft_u1250",
+  "run_id": "full_ft",
+  "method": "full_ft",
+  "update": 1250,
+  "backend": "hf",
+  "num_fewshot": 0,
+  "limit": null,
+  "benchmarks": {
+    "gsm8k": {
+      "primary_metric": "exact_match",
+      "primary_filter": "exact_match,flexible-extract",
+      "primary_value": 0.6527672479150872,
+      "metrics": {
+        "exact_match,strict-match": 0.0,
+        "exact_match,flexible-extract": 0.6527672479150872
+      },
+      "task": "gsm8k_cot",
+      "n_examples": 1319,
+      "batch_size": 32
+    },
+    "hellaswag": {
+      "primary_metric": "acc_norm",
+      "primary_filter": "acc_norm,none",
+      "primary_value": 0.4600677155945031,
+      "metrics": {
+        "acc,none": 0.3739294961163115,
+        "acc_norm,none": 0.4600677155945031
+      },
+      "task": "hellaswag",
+      "n_examples": 10042,
+      "batch_size": 32
+    },
+    "boolq": {
+      "primary_metric": "acc",
+      "primary_filter": "acc,none",
+      "primary_value": 0.6009174311926605,
+      "metrics": {
+        "acc,none": 0.6009174311926605
+      },
+      "task": "boolq",
+      "n_examples": 3270,
+      "batch_size": 16
+    },
+    "arc_easy": {
+      "primary_metric": "acc_norm",
+      "primary_filter": "acc_norm,none",
+      "primary_value": 0.6342592592592593,
+      "metrics": {
+        "acc,none": 0.6683501683501684,
+        "acc_norm,none": 0.6342592592592593
+      },
+      "task": "arc_easy",
+      "n_examples": 2376,
+      "batch_size": 32
+    }
+  }
+}

@@ -1,0 +1,93 @@
+[
+  {
+    "condition":"baseline",
+    "gsm8k (exact_match)":43.06,
+    "gsm8k delta_pp":0.0,
+    "hellaswag (acc_norm)":47.33,
+    "hellaswag delta_pp":0.0,
+    "hellaswag raw acc":37.57,
+    "boolq (acc)":64.4,
+    "boolq delta_pp":0.0,
+    "arc_easy (acc_norm)":56.02,
+    "arc_easy delta_pp":0.0,
+    "arc_easy raw acc":60.86
+  },
+  {
+    "condition":"full_ft_u625",
+    "gsm8k (exact_match)":56.33,
+    "gsm8k delta_pp":13.27,
+    "hellaswag (acc_norm)":45.68,
+    "hellaswag delta_pp":-1.65,
+    "hellaswag raw acc":37.06,
+    "boolq (acc)":61.5,
+    "boolq delta_pp":-2.91,
+    "arc_easy (acc_norm)":62.29,
+    "arc_easy delta_pp":6.27,
+    "arc_easy raw acc":65.7
+  },
+  {
+    "condition":"full_ft_u1250",
+    "gsm8k (exact_match)":65.28,
+    "gsm8k delta_pp":22.21,
+    "hellaswag (acc_norm)":46.01,
+    "hellaswag delta_pp":-1.32,
+    "hellaswag raw acc":37.39,
+    "boolq (acc)":60.09,
+    "boolq delta_pp":-4.31,
+    "arc_easy (acc_norm)":63.43,
+    "arc_easy delta_pp":7.41,
+    "arc_easy raw acc":66.84
+  },
+  {
+    "condition":"full_ft_l2sp_u1250",
+    "gsm8k (exact_match)":64.37,
+    "gsm8k delta_pp":21.3,
+    "hellaswag (acc_norm)":46.43,
+    "hellaswag delta_pp":-0.91,
+    "hellaswag raw acc":37.5,
+    "boolq (acc)":62.54,
+    "boolq delta_pp":-1.87,
+    "arc_easy (acc_norm)":63.26,
+    "arc_easy delta_pp":7.24,
+    "arc_easy raw acc":65.95
+  },
+  {
+    "condition":"lora_r4_u1250",
+    "gsm8k (exact_match)":60.65,
+    "gsm8k delta_pp":17.59,
+    "hellaswag (acc_norm)":47.44,
+    "hellaswag delta_pp":0.11,
+    "hellaswag raw acc":37.66,
+    "boolq (acc)":67.95,
+    "boolq delta_pp":3.55,
+    "arc_easy (acc_norm)":63.13,
+    "arc_easy delta_pp":7.11,
+    "arc_easy raw acc":65.19
+  },
+  {
+    "condition":"lora_r16_u1250",
+    "gsm8k (exact_match)":61.56,
+    "gsm8k delta_pp":18.5,
+    "hellaswag (acc_norm)":47.29,
+    "hellaswag delta_pp":-0.04,
+    "hellaswag raw acc":37.74,
+    "boolq (acc)":72.6,
+    "boolq delta_pp":8.2,
+    "arc_easy (acc_norm)":64.23,
+    "arc_easy delta_pp":8.21,
+    "arc_easy raw acc":67.13
+  },
+  {
+    "condition":"oplora_r16_k128_u1250",
+    "gsm8k (exact_match)":61.64,
+    "gsm8k delta_pp":18.57,
+    "hellaswag (acc_norm)":47.32,
+    "hellaswag delta_pp":-0.01,
+    "hellaswag raw acc":37.91,
+    "boolq (acc)":72.05,
+    "boolq delta_pp":7.65,
+    "arc_easy (acc_norm)":64.06,
+    "arc_easy delta_pp":8.04,
+    "arc_easy raw acc":66.75
+  }
+]
