@@ -191,18 +191,27 @@ def _verify_response_loss(model, decoder, head, batch, *, pcfg, device, amp_enab
     if n_i == 0:
         return None
 
-    with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
-        out = model(input_ids=input_ids, attention_mask=attn, labels=labels)
-    old_mean = float(out.loss)  # HF mean over non-ignored response tokens
-    new_sum, n_new = _response_loss_sum_value(
-        decoder, head, input_ids, attn, labels,
-        pcfg=pcfg, device=device, amp_enabled=amp_enabled, chunk_rows=chunk_rows,
-    )
+    # Disable dropout for the check: on resume (B!=0) LoRA dropout would draw different masks in
+    # the two forward passes, breaking the equivalence over a noise floor (hf vs new abs_diff ~
+    # dropout rate). eval() both paths and restore the original mode afterwards.
+    was_training = model.training
+    model.eval()
+    try:
+        with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
+            out = model(input_ids=input_ids, attention_mask=attn, labels=labels)
+        old_mean = float(out.loss)  # HF mean over non-ignored response tokens
+        new_sum, n_new = _response_loss_sum_value(
+            decoder, head, input_ids, attn, labels,
+            pcfg=pcfg, device=device, amp_enabled=amp_enabled, chunk_rows=chunk_rows,
+        )
+    finally:
+        model.train(was_training)
     new_mean = new_sum / n_new if n_new else 0.0
     diff = abs(old_mean - new_mean)
     result = {"type": "loss_equivalence_check", "hf_mean_loss": old_mean,
               "response_only_mean_loss": new_mean, "abs_diff": diff,
-              "n_response_tokens": n_i, "tol": tol, "ok": diff <= tol}
+              "n_response_tokens": n_i, "tol": tol, "ok": diff <= tol,
+              "dropout_disabled_for_check": True}
     if not result["ok"]:
         raise RuntimeError(
             f"Response-only loss disagrees with HF loss: hf={old_mean:.6f} "
