@@ -102,6 +102,10 @@ python -m task1_llm.evaluate --config configs/task1/eval.yaml
 python -m task1_llm.diagnostics_weight     --config configs/task1/diagnostics.yaml
 python -m task1_llm.diagnostics_activation --config configs/task1/diagnostics.yaml
 python -m task1_llm.qualitative            --config configs/task1/qualitative.yaml
+# OPLoRA overhead (basis storage / SVD preprocessing / export overhead; Step 4) + GSM8K extraction
+# & truncation audit over the seven conditions (reads the eval per-example gsm8k.jsonl on Drive).
+python -m task1_llm.oplora_overhead        --config configs/task1/oplora_r16_k128.yaml
+python -m task1_llm.gsm8k_extraction       --config configs/task1/eval.yaml
 ```
 
 > **Evaluation prompt format (requirement).** `evaluate.py` must implement **two** prompt paths,
