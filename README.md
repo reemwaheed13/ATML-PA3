@@ -80,8 +80,9 @@ docs/          Handout (gitignored).
 
 `DRIVE_ROOT` (default `MyDrive/ATML-PA3`) layout:
 `data/`, `hf_cache/`, `task1/{checkpoints,eval,generations}`, `task2/{features,checkpoints,eval}`,
-`task3/{live,cache}`. Supplied files go in `data/`: `first_plot_questions.yaml` (Task 1),
-`ATML-PA3-Data/` (Task 3).
+`task3/{live,cache}`. Supplied files go in `data/`: `ATML-PA3-Data/` (Task 3). The Task-1
+qualitative prompts (`first_plot_questions.yaml`) are small and fixed, so they are committed in the
+repo at `configs/task1/first_plot_questions.yaml` (see Attribution) rather than kept on Drive.
 
 ## Reproduce
 
@@ -139,7 +140,9 @@ python -m task3_ttc.live     --config configs/task3/live.yaml      # GPU: 50 MAT
 
 Tracked here and in the relevant configs; selections are frozen into `splits/` with the rule used.
 1. GSM8K decontamination "text normalization" rule for MetaMathQA eligibility (changes the 40k set).
-2. Whether `first_plot_questions.yaml` is supplied or we author the 8 base questions.
+2. ~~Whether `first_plot_questions.yaml` is supplied or we author the 8 base questions.~~
+   Resolved: use the 24-entry file from Betley et al. 2025 (*Emergent Misalignment*), committed
+   unchanged at `configs/task1/first_plot_questions.yaml` (see Attribution).
 3. Which 3 of COCO's 5 captions per training image.
 4. Seeding of the ten Task-3 rollout permutation orders.
 5. The "prompt token before answer continuation" convention for HellaSwag activation hooks.
@@ -160,5 +163,6 @@ clear attribution of materially reused code). Updated as implementation proceeds
 | LoRA parameterization | Hu et al., *LoRA* | `task1_llm/adapters.py` |
 | Connector / visual instruction tuning design | Liu et al., *Visual Instruction Tuning* (LLaVA) | `task2_vlm/connector.py`, `model.py` |
 | SigLIP encoder, Qwen3 chat template | HuggingFace `transformers` | `task2_vlm/features.py`, Task 1/2 models |
+| Qualitative prompts (`first_plot_questions.yaml`, 24 entries, unchanged) | Betley et al. 2025, *Emergent Misalignment* (repo `emergent-misalignment/emergent-misalignment`, `evaluation/first_plot_questions.yaml`) | `configs/task1/first_plot_questions.yaml`, `task1_llm/qualitative.py` |
 
 Repository link will be added at the end of the report abstract (handout p1, p15).

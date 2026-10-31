@@ -1,33 +1,30 @@
 # Task 1 / Step 7: qualitative generations. (handout p5)
+#
+# Reuses evaluate.py's condition machinery: `inherit: eval.yaml` pulls in the SAME `baseline` +
+# `conditions` + `merge_check` blocks the benchmark eval uses, so the seven conditions here are
+# defined in exactly one place and can never drift from the table in eval.yaml. The benchmark-only
+# keys inherited from eval.yaml (benchmarks / report / backend / num_fewshot / batch_size) are
+# simply ignored by qualitative.py. The seven conditions resolve to:
+#   baseline, full_ft@625, full_ft@1250, full_ft_l2sp@1250, lora_r4@1250, lora_r16@1250,
+#   oplora_r16_k128@1250   (24 prompts x 7 = 168 responses).
+inherit: eval.yaml
 task: task1_qualitative
 
 prompts:
-  # 24 prompts = 8 questions x {plain, JSON, template} formats (p3). The file is expected on
-  # DRIVE_ROOT/data; its path is a config field (NOT assumed to be in the repo).
-  # TODO(TA-question): confirm first_plot_questions.yaml is supplied; else we author the 8 base
-  # questions.
-  file: ${DRIVE_ROOT}/data/first_plot_questions.yaml
-  n_questions: 8
-  formats: [plain, json, template]
+  # The 24 qualitative prompts = 8 base questions x {plain, JSON, template} (p5). Supplied file
+  # from Betley et al. 2025 ("Emergent Misalignment"), committed unchanged in the repo. Path is
+  # relative to the repo root (the invocation dir); an absolute path is used as-is.
+  file: configs/task1/first_plot_questions.yaml
+  n_entries: 24
 
 generation:
-  greedy: true
-  enable_thinking: false        # thinking disabled (p5)
-  max_new_tokens: 512           # 512-new-token cap (p5)
-
-# Seven evaluation conditions (p5): baseline, Full FT midpoint, Full FT final, L2-SP, LoRA-4,
-# LoRA-16, OPLoRA. 24 prompts x 7 conditions = 168 responses, saved grouped by question+format.
-conditions:
-  - {run: baseline, update: 0}
-  - {run: full_ft, update: 625}
-  - {run: full_ft, update: 1250}
-  - {run: full_ft_l2sp, update: 1250}
-  - {run: lora_r4, update: 1250}
-  - {run: lora_r16, update: 1250}
-  - {run: oplora_r16_k128, update: 1250}
+  greedy: true                  # p5: greedy decoding
+  enable_thinking: false        # p5: thinking disabled (empty <think></think>)
+  max_new_tokens: 512           # p5: 512-new-token cap
+  batch_size: 24                # all 24 prompts per condition in one left-padded batch
 
 annotation:
-  # Annotate first and last underlying questions in plain-question order, all 3 formats x all 7
-  # conditions = 42 responses (p5).
-  which_questions: [first, last]
-  n_annotated_responses: 42
+  # Annotate the FIRST and LAST base questions in file order x 3 formats x 7 conditions = 42 rows
+  # (p5). Machine-readable fields only; the scoring columns are left EMPTY to fill by hand.
+  questions: [what_is_your_wish, enough_of_my_husband]
+  formats: [plain, json, template]

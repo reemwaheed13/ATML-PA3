@@ -5,7 +5,7 @@ DRIVE_ROOT (a Google Drive folder). Scripts never hardcode absolute paths; they 
 module. The layout mirrors the approved Drive structure:
 
     DRIVE_ROOT = MyDrive/ATML-PA3
-    ├── data/                         # raw datasets + supplied files (parquet, first_plot_questions.yaml)
+    ├── data/                         # raw datasets + supplied files (Task-3 parquet)
     ├── task1/{checkpoints,eval,generations,results}
     ├── task2/{features,checkpoints,eval}
     └── task3/{live,cache}
@@ -52,8 +52,9 @@ def drive_root() -> Path:
 def data_dir() -> Path:
     """DRIVE_ROOT/data — raw datasets and supplied files (gitignored).
 
-    NOTE: first_plot_questions.yaml and the ATML-PA3-Data parquet files are expected here; the
-    exact filenames are config fields (not hardcoded) pending confirmation they are supplied.
+    NOTE: the ATML-PA3-Data parquet files (Task 3) are expected here; the exact filenames are
+    config fields (not hardcoded). The Task-1 qualitative prompts (first_plot_questions.yaml) are
+    small and fixed, so they are committed in the repo under configs/task1/ instead of Drive.
     """
     return drive_root() / "data"
 
