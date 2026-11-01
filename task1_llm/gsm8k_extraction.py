@@ -46,7 +46,7 @@ _RAW_KEYS = ("resps", "response", "resp", "generation")
 _FLEXIBLE_FILTER = "flexible-extract"   # the only lm-eval filter rows we score from
 _INVALID_EXTRACTION = ("", "[invalid]")  # filtered_resps[0] values that mean "unextractable"
 _DEFAULT_MAX_NEW_TOKENS = 1024
-_EM_TOL = 0.02          # tolerance when cross-checking recomputed vs eval-JSON flexible exact_match
+_EM_TOL = 1e-6          # tolerance when cross-checking recomputed vs eval-JSON flexible exact_match
 
 
 # ---------------------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ def _summarize(label: str, records: dict[int, dict], baseline: Optional[dict[int
     if recomputed_em is not None and eval_em is not None and abs(recomputed_em - eval_em) > _EM_TOL:
         raise ValueError(
             f"{label}: recomputed flexible exact_match {recomputed_em:.4f} differs from eval JSON "
-            f"{eval_em:.4f} (>{_EM_TOL:.2f}); the mean of lm-eval's per-sample exact_match disagrees "
+            f"{eval_em:.4f} (>{_EM_TOL:.0e}); the mean of lm-eval's per-sample exact_match disagrees "
             f"with the committed eval JSON — the gsm8k.jsonl and eval JSON are out of sync."
         )
 
