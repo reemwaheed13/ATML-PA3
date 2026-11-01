@@ -512,6 +512,10 @@ class CurriculumSampler:
         self._pools = self._load_pools()
         self.rng = np.random.default_rng(seed)
         self.position = 0
+        # Cumulative count of draws actually sampled per mixture component (checkpointed so the
+        # tally survives resume). Keyed by the mixture component name (e.g. caption, presence,
+        # caption_replay).
+        self.counts = {c: 0 for c in self._components}
 
     def _ids_path(self, name: str) -> str:
         return os.path.join(_ids_dir(self.cfg), name)
@@ -603,18 +607,22 @@ class CurriculumSampler:
             component = self._components[int(self.rng.choice(len(self._components), p=self._probs))]
             examples = self._draw_component(component)
             self.position += 1
+            self.counts[component] += 1
             yield examples
 
     # -- resume ----------------------------------------------------------------------------------
 
     def get_state(self) -> dict[str, Any]:
-        """Return RNG bit-state + draw position for checkpointing."""
-        return {"rng": self.rng.bit_generator.state, "position": self.position}
+        """Return RNG bit-state + draw position + per-component draw counts for checkpointing."""
+        return {"rng": self.rng.bit_generator.state, "position": self.position,
+                "counts": dict(self.counts)}
 
     def set_state(self, state: dict[str, Any]) -> None:
-        """Restore RNG + position on resume."""
+        """Restore RNG + position + per-component draw counts on resume."""
         self.rng.bit_generator.state = state["rng"]
         self.position = int(state["position"])
+        saved = state.get("counts", {})
+        self.counts = {c: int(saved.get(c, 0)) for c in self._components}
 
 
 def _pid(pair: dict) -> str:

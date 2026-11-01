@@ -26,7 +26,7 @@ from common.checkpoint import (CheckpointState, checkpoint_path, latest_checkpoi
                                load_checkpoint, prune_checkpoints, save_checkpoint)
 from common.config import build_arg_parser, load_yaml, run_id_from_config
 from common.logging_utils import JsonlLogger
-from common.paths import ensure_dir, task2_dir
+from common.paths import REPO_ROOT, ensure_dir, task2_dir
 from common.precision import PrecisionConfig, make_grad_scaler, optimizer_step
 from common.resources import Timer, count_params, peak_gpu_bytes
 from common.seeding import capture_rng_state, restore_rng_state, seed_all
@@ -110,6 +110,95 @@ def _load_weights(model: SigLIPQwenVLM, weights: dict[str, Any]) -> None:
             ad.B.copy_(saved["B"].to(ad.B.device, ad.B.dtype))
 
 
+def _calibrate_connector(model: SigLIPQwenVLM, cfg: dict[str, Any], logger: JsonlLogger,
+                         device: torch.device) -> None:
+    """Calibrate connector output magnitude vs text embeddings, TRAINING data only. (p9 Step 1)
+
+    Rule (recorded in the logged row): scale = a / b, where
+      a = mean L2 norm of Qwen input-embedding vectors over the caption-text tokens, and
+      b = mean L2 norm of the freshly initialised connector's output vectors over a fixed seeded
+          sample of 256 training images (caption-train images, drawn with an independent generator
+          so the training sampler/global RNG are untouched).
+    The scale is frozen into the connector's non-trainable `scale` buffer (so it is applied to every
+    connector output in train / dev eval / final eval, and saved/restored with the connector
+    weights; the no-image path has no connector output and is unaffected). Honors
+    visual_tokens.calibrate_magnitude: when false, the scale stays 1.0 and no row is logged.
+    """
+    import json
+
+    import numpy as np
+
+    from .connector import pool_2x2
+
+    if not bool(cfg.get("visual_tokens", {}).get("calibrate_magnitude", False)):
+        print("[task2.train] calibrate_magnitude disabled; connector scale stays 1.0.", flush=True)
+        return
+
+    cap_path = os.fspath(REPO_ROOT / cfg.get("ids_dir", "splits/task2") / "captions_train.json")
+    if not os.path.exists(cap_path):
+        logger.log({"type": "calibration", "ok": False, "error": f"missing {cap_path}"})
+        print(f"[task2.train] calibration skipped: {cap_path} not found.", flush=True)
+        return
+    with open(cap_path, encoding="utf-8") as f:
+        captions = json.load(f)
+
+    # Fixed seeded sample of 256 training images (independent generator -> training RNG untouched).
+    rng = np.random.default_rng(SEED)
+    feats_list: list[torch.Tensor] = []
+    cap_texts: list[str] = []
+    for i in rng.permutation(len(captions)):
+        c = captions[int(i)]
+        try:
+            feats_list.append(load_cached_features(cfg, int(c["image_id"]), device=device))
+        except Exception:
+            continue                                   # image not cached (e.g. smoke cap) -> skip
+        cap_texts.append(c["caption"])
+        if len(feats_list) >= 256:
+            break
+    if not feats_list:
+        logger.log({"type": "calibration", "ok": False,
+                    "error": "no cached features for calibration sample"})
+        print("[task2.train] calibration skipped: no cached features in sample.", flush=True)
+        return
+
+    # (b) mean L2 norm of fresh (unscaled) connector outputs over the sampled images (chunked).
+    v_sum, v_cnt = 0.0, 0
+    with torch.no_grad():
+        for j in range(0, len(feats_list), 32):
+            fb = torch.stack(feats_list[j:j + 32])
+            if model.pool_visual:
+                fb = pool_2x2(fb)
+            z = model.connector.project(fb.to(model.connector.fc1.weight.dtype)).float()
+            l2 = z.norm(dim=-1)
+            v_sum += float(l2.sum())
+            v_cnt += int(l2.numel())
+    visual_norm = v_sum / max(1, v_cnt)
+
+    # (a) mean L2 norm of Qwen input-embedding vectors over the caption-text tokens.
+    embed = model.embed_tokens()
+    t_sum, t_cnt = 0.0, 0
+    with torch.no_grad():
+        for text in cap_texts:
+            ids = model.tokenizer(text, add_special_tokens=False)["input_ids"]
+            if not ids:
+                continue
+            ids_t = torch.tensor([int(x) for x in ids], dtype=torch.long, device=device)
+            l2 = embed(ids_t).float().norm(dim=-1)
+            t_sum += float(l2.sum())
+            t_cnt += int(l2.numel())
+    text_norm = t_sum / max(1, t_cnt)
+
+    scale = text_norm / max(visual_norm, 1e-8)
+    model.connector.set_scale(scale)
+    rule = ("scale = mean_L2(Qwen input-embeddings over caption-text tokens) / "
+            "mean_L2(fresh connector outputs over a seeded training-image sample); training data "
+            f"only; sample seed={SEED}; images={len(feats_list)}; caption_tokens={t_cnt}")
+    logger.log({"type": "calibration", "rule": rule, "text_norm": text_norm,
+                "visual_norm_before": visual_norm, "scale": scale})
+    print(f"[task2.train] calibration: text_norm={text_norm:.4f} visual_norm={visual_norm:.4f} "
+          f"scale={scale:.4f}", flush=True)
+
+
 def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None = None) -> None:
     run_id = cfg.get("run_id") or "task2_run"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -175,6 +264,12 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
     logger.log({"type": "sanity", "ok": True, "update": start_update, "report": sanity_report})
     print(f"[task2.train] sanity_checks OK: visual={sanity_report.get('visual_shape')} "
           f"connector_grad_ok={sanity_report.get('connector_grad_ok')}", flush=True)
+
+    # Calibrate the fresh connector's output magnitude before Stage 1 (training data only). On
+    # resume the scale is restored from the checkpoint with the connector weights, so only run it
+    # for a fresh start.
+    if start_update == 0:
+        _calibrate_connector(model, cfg, logger, device)
 
     feat_cache: dict[int, torch.Tensor] = {}
 
@@ -277,7 +372,8 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
                 logger.log({"update": update, "stage": stage_cfg["name"], "stage_idx": stage_idx,
                             "loss": micro_loss_sum / accum, "lr": scheduler.get_last_lr()[0],
                             "grad_norm": info["grad_norm"], "skipped": info["skipped"],
-                            "scale": info["scale"], "examples": n_examples})
+                            "scale": info["scale"], "examples": n_examples,
+                            "draws": dict(sampler.counts)})
                 if update % 50 == 0 or update == g0 + 1:
                     print(f"[task2.train] {run_id} {update}/{total_updates} "
                           f"stage={stage_cfg['name']} loss={micro_loss_sum / accum:.4f} "
@@ -291,8 +387,12 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
                     stopped_early = True
                     break
 
-            # End of stage: dev eval + save connector/adapter weights.
+            # End of stage: per-stage mixture-draw summary, dev eval + save weights.
             if not stopped_early:
+                logger.log({"type": "stage_mixture_summary", "stage": stage_cfg["name"],
+                            "stage_idx": stage_idx, "update": update,
+                            "draws": dict(sampler.counts),
+                            "total_draws": int(sum(sampler.counts.values()))})
                 maybe_dev_eval(update)
                 save(update, stage_idx, sampler, optimizer, scheduler, tag=f"stage{stage_idx}_end")
             if stopped_early:

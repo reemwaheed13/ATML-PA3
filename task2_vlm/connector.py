@@ -3,7 +3,8 @@
     Z(I) = g_phi(F(I)),   F(I) in R^{196x768},   Z(I) in R^{196x1024}
 Architecture: Linear 768 -> 1024, GELU, Linear 1024 -> 1024. Trainable throughout all stages.
 The connector output magnitude is calibrated against text embeddings using training data only
-(p9 Step 1); the rule + resulting scale are recorded.
+(p9 Step 1): the resulting scale is frozen into the `scale` buffer below. The calibration rule is
+implemented (and the rule + resulting scale logged) in `train._calibrate_connector`.
 """
 
 from __future__ import annotations
@@ -43,22 +44,6 @@ class Connector(nn.Module):
     def set_scale(self, scale: float) -> None:
         """Freeze the calibration scale into the connector (recorded for reproducibility)."""
         self.scale.fill_(float(scale))
-
-
-@torch.no_grad()
-def calibrate_magnitude(connector: Connector, text_embeddings: torch.Tensor,
-                        sample_features: torch.Tensor) -> float:
-    """Return a scale aligning connector-output magnitude with text-embedding magnitude.
-
-    Rule (recorded, p9 Step 1): ratio of the mean per-token RMS norm of text embeddings to that of
-    the UNSCALED connector outputs, over training-data samples only. Applying this scale makes the
-    average visual-token magnitude match the average text-token magnitude. Since both live in the
-    same 1024-dim space, the RMS ratio equals the L2-norm ratio.
-    """
-    z = connector.project(sample_features.to(connector.fc1.weight.dtype)).float()
-    txt_rms = text_embeddings.float().pow(2).mean(dim=-1).sqrt().mean()
-    con_rms = z.pow(2).mean(dim=-1).sqrt().mean().clamp_min(1e-8)
-    return float(txt_rms / con_rms)
 
 
 def pool_2x2(feats: torch.Tensor) -> torch.Tensor:

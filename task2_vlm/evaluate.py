@@ -285,11 +285,14 @@ def run_final(cfg: dict[str, Any]) -> dict[str, Any]:
     amp = torch.cuda.is_available()
 
     model = _load_final_model(cfg)
+    run_id = cfg.get("run_id", "task2_run")
+    resamples = int(eval_cfg.get("scoring", {}).get("bootstrap_resamples", 4000))
 
     suites = {"grounding": _grounding_instances(_load(cfg, "grounding_test.json"), cfg),
               "natural_vqa": _natural_instances(_load(cfg, "natural_vqa_test.json"))}
     conditions = ["correct", "complementary_swap", "mismatched", "no_image"]
     results: dict[str, Any] = {}
+    example_rows: list[dict[str, Any]] = []            # one row per (suite, condition, instance)
 
     for suite, instances in suites.items():
         if not instances:
@@ -298,19 +301,53 @@ def run_final(cfg: dict[str, Any]) -> dict[str, Any]:
         for idx, inst in enumerate(instances):
             inst["mismatched"] = mism[str(idx)]
 
+        # Partner image's canonical answer: each instance maps its own (pair, correct image) to its
+        # target, so the partner's canonical answer is the sibling instance's target.
+        canonical = {(inst["pair_id"], inst["correct"]): inst["target"] for inst in instances}
+
         suite_res: dict[str, Any] = {}
+        cond_scores: dict[str, list[float]] = {}
+        cond_nlls: dict[str, list[float]] = {}
         for cond in conditions:
             preds, nlls, times = _generate_condition(model, cfg, instances, cond, max_new, bs, pcfg, amp)
-            suite_res[cond] = _score_condition(instances, preds, nlls, times, suite)
+            scores = [_instance_score(inst, pred, suite) for inst, pred in zip(instances, preds)]
+            suite_res[cond] = _score_condition(instances, preds, scores, nlls, times, suite)
+            cond_scores[cond] = scores
+            cond_nlls[cond] = nlls
+
+            follows = []
+            for inst, pred, score, nll in zip(instances, preds, scores, nlls):
+                norm_pred = normalize_answer(pred)
+                partner_ans = canonical.get((inst["pair_id"], inst["partner"]))
+                img = None if cond == "no_image" else _cond_image(inst, _cond_key(cond))
+                example_rows.append({
+                    "suite": suite, "condition": cond, "pair_id": inst["pair_id"],
+                    "image_id": img, "question": inst["question"],
+                    "question_type": inst["subtype"], "target": inst["target"],
+                    "references": list(inst.get("answers", [])),
+                    "partner_canonical": partner_ans,
+                    "raw_generation": pred, "normalized_prediction": norm_pred,
+                    "score": float(score),
+                    "reference_nll": (float(nll) if nll is not None and np.isfinite(nll) else None),
+                    "empty": norm_pred == "",
+                })
+                if cond == "complementary_swap":
+                    follows.append(1.0 if partner_ans is not None
+                                   and norm_pred == normalize_answer(partner_ans) else 0.0)
+            if cond == "complementary_swap":
+                suite_res[cond]["follows_partner_rate"] = float(np.mean(follows)) if follows else 0.0
+
         results[suite] = suite_res
-        # Correct-image advantages (accuracy + NLL) with pair bootstrap.
+        # Correct-image advantages (accuracy + NLL) with a shared pair bootstrap (matched pair IDs).
         results[f"{suite}_advantage"] = _correct_image_advantage(
-            instances, suite_res, int(eval_cfg.get("scoring", {}).get("bootstrap_resamples", 4000)))
+            instances, cond_scores, cond_nlls, resamples)
 
     out_dir = ensure_dir(REPO_ROOT / "results" / "task2")
-    with open(os.fspath(out_dir / f"{cfg.get('run_id', 'task2_run')}_final.json"), "w",
-              encoding="utf-8") as f:
+    with open(os.fspath(out_dir / f"{run_id}_final.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
+    with open(os.fspath(out_dir / f"{run_id}_final_examples.jsonl"), "w", encoding="utf-8") as f:
+        for row in example_rows:
+            f.write(json.dumps(row) + "\n")
     return results
 
 
@@ -340,17 +377,24 @@ def _generate_condition(model, cfg, instances, cond, max_new, bs, pcfg, amp):
     return preds, nlls, times
 
 
-def _score_condition(instances, preds, nlls, times, suite) -> dict[str, Any]:
-    """Accuracy (per subtype), pair accuracy, identical/empty rates, mean NLL, gen time."""
+def _instance_score(inst: dict, pred: str, suite: str) -> float:
+    """Per-instance score: VQAv2 soft consensus (10 answers) or normalized exact match (grounding)."""
+    if suite == "natural_vqa":
+        return soft_consensus_accuracy(pred, inst["answers"]) if inst["answers"] \
+            else normalized_exact_match(pred, inst["target"])
+    return normalized_exact_match(pred, inst["target"])
+
+
+def _score_condition(instances, preds, scores, nlls, times, suite) -> dict[str, Any]:
+    """Accuracy (per subtype), pair accuracy, identical/empty rates, mean NLL, gen time.
+
+    `scores` are the per-instance scores (aligned with `instances`/`preds`), computed once by the
+    caller so the same values feed both this summary and the pair bootstrap.
+    """
     per_type: dict[str, list[float]] = {}
     correct_by_pair: dict[str, list[bool]] = {}
     empty = 0
-    for inst, pred in zip(instances, preds):
-        if suite == "natural_vqa":
-            score = soft_consensus_accuracy(pred, inst["answers"]) if inst["answers"] \
-                else normalized_exact_match(pred, inst["target"])
-        else:
-            score = normalized_exact_match(pred, inst["target"])
+    for inst, pred, score in zip(instances, preds, scores):
         per_type.setdefault(inst["subtype"], []).append(score)
         correct_by_pair.setdefault(inst["pair_id"], []).append(score >= 0.5)
         if normalize_answer(pred) == "":
@@ -366,7 +410,6 @@ def _score_condition(instances, preds, nlls, times, suite) -> dict[str, Any]:
         "empty_answer_rate": empty / max(1, len(preds)),
         "mean_reference_nll": float(np.nanmean(nlls)) if nlls else float("nan"),
         "gen_seconds_per_answer": float(np.mean(times)) if times else 0.0,
-        "_per_instance_scores": [s for v in per_type.values() for s in v],  # internal (bootstrap)
     }
 
 
@@ -379,32 +422,50 @@ def _identical_answer_rate(instances, preds) -> float:
     return float(np.mean([a == b for a, b in both])) if both else 0.0
 
 
-def _correct_image_advantage(instances, suite_res, resamples) -> dict[str, Any]:
-    """Correct-vs-complementary advantage in accuracy + NLL with pair bootstrap CIs."""
-    # Per-pair correct/complementary accuracy and NLL, aligned by pair id.
-    pair_ids = sorted({inst["pair_id"] for inst in instances})
-    corr = suite_res["correct"]
-    comp = suite_res["complementary_swap"]
-    acc_diff = np.array(corr["_per_instance_scores"]) - np.array(comp["_per_instance_scores"])
-    # NLL advantage: complementary NLL - correct NLL (higher => correct image helps).
-    nll_adv = comp["mean_reference_nll"] - corr["mean_reference_nll"]
-    acc_ci = bootstrap_pair_difference(acc_diff.tolist(), resamples=resamples)
-    return {"accuracy_advantage_mean": float(acc_diff.mean()) if acc_diff.size else 0.0,
-            "accuracy_advantage_ci95": acc_ci, "nll_advantage": float(nll_adv),
-            "n_pairs": len(pair_ids)}
+def _correct_image_advantage(instances, cond_scores, cond_nlls, resamples) -> dict[str, Any]:
+    """Correct-vs-complementary advantage in accuracy AND NLL with a shared pair bootstrap. (p9)
 
+    Values are aggregated to complete pairs (matched pair IDs): each pair's advantage is the mean
+    over its instances. One shared set of resample indices is drawn per bootstrap iteration so the
+    accuracy and NLL CIs come from the same 4,000 pair resamples. Accuracy advantage per pair =
+    correct - complementary; NLL advantage per pair = complementary - correct (positive => the
+    correct image makes the reference more likely).
+    """
+    idx_by_pair: dict[Any, list[int]] = {}
+    for i, inst in enumerate(instances):
+        idx_by_pair.setdefault(inst["pair_id"], []).append(i)
+    pair_ids = sorted(idx_by_pair)
 
-def bootstrap_pair_difference(per_pair_values, resamples: int = 4000, *, seed: int = SEED):
-    """95% CI for a correct-vs-complementary difference by resampling complete pairs. (p9)"""
-    vals = np.asarray(per_pair_values, dtype=np.float64)
-    if vals.size == 0:
-        return [float("nan"), float("nan")]
-    rng = np.random.default_rng(seed)
-    means = np.empty(resamples)
-    n = vals.size
-    for b in range(resamples):
-        means[b] = vals[rng.integers(0, n, n)].mean()
-    return [float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))]
+    corr_s, comp_s = cond_scores["correct"], cond_scores["complementary_swap"]
+    corr_n, comp_n = cond_nlls["correct"], cond_nlls["complementary_swap"]
+    acc_adv, nll_adv = [], []
+    for pid in pair_ids:
+        idxs = idx_by_pair[pid]
+        acc_adv.append(float(np.mean([corr_s[i] for i in idxs])
+                             - np.mean([comp_s[i] for i in idxs])))
+        nll_adv.append(float(np.nanmean([comp_n[i] for i in idxs])
+                             - np.nanmean([corr_n[i] for i in idxs])))
+    acc_adv = np.asarray(acc_adv, dtype=np.float64)
+    nll_adv = np.asarray(nll_adv, dtype=np.float64)
+
+    n = len(pair_ids)
+    acc_ci = [float("nan"), float("nan")]
+    nll_ci = [float("nan"), float("nan")]
+    if n:
+        rng = np.random.default_rng(SEED)
+        acc_means, nll_means = np.empty(resamples), np.empty(resamples)
+        for b in range(resamples):
+            sel = rng.integers(0, n, n)              # shared resample => matched pair IDs
+            acc_means[b] = acc_adv[sel].mean()
+            nll_means[b] = np.nanmean(nll_adv[sel])
+        acc_ci = [float(np.percentile(acc_means, 2.5)), float(np.percentile(acc_means, 97.5))]
+        nll_ci = [float(np.percentile(nll_means, 2.5)), float(np.percentile(nll_means, 97.5))]
+
+    return {"accuracy_advantage_mean": float(np.nanmean(acc_adv)) if n else 0.0,
+            "accuracy_advantage_ci95": acc_ci,
+            "nll_advantage_mean": float(np.nanmean(nll_adv)) if n else 0.0,
+            "nll_advantage_ci95": nll_ci,
+            "n_pairs": n}
 
 
 def main() -> None:
