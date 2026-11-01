@@ -125,6 +125,42 @@ python -m task1_llm.gsm8k_extraction       --config configs/task1/eval.yaml
 > after any checkpoint at N) to simulate a Colab disconnect, then `--resume` to continue. The
 > heaviest run's memory can be previewed with `configs/task1/smoke_full_ft_l2sp.yaml`.
 
+### Task 1 — results and caveats
+
+All Task 1 outputs are under `results/task1/`:
+
+- **Metrics & tables.** `benchmark_table.csv`; per-condition eval dumps in `eval/*.json`; `tables/`
+  (resources, diagnostics weight/activation, gsm8k_extraction, oplora_overhead, loss_curve_coverage).
+- **Figures.** `figures/` holds 5 PNGs, including `task1_sft_loss_stitched.png` and
+  `task1_diagnostics.png`.
+- **Diagnostics & audits.** `diagnostics_*.json`, `l2sp_displacement.json`, `oplora_overhead.json`,
+  `gsm8k_extraction.json`, and the per-example `gsm8k_per_example.csv`.
+- **Qualitative.** `qualitative/` (168 responses + `annotation_sheet.csv`).
+
+Caveats:
+
+- **Eval batch size.** Evaluation uses batch size 32 (BoolQ 16). The baseline GSM8K score is 43.06
+  at both batch 32 and batch 1 (`results/task1/eval_bs1`).
+- **Training-log gaps.** An early version of `JsonlLogger` only uploaded to Drive on file close, so
+  rows were lost when runtimes died (fixed in `5843e16`). Logged curves start at update 626 for
+  LoRA-4 and LoRA-16 and 313 for OPLoRA. Sparse early points for LoRA-16 (1–625) and OPLoRA (1–300)
+  were recovered from notebook output of the same runs whose checkpoints were resumed
+  (`train/recovered_early_points.json`). LoRA-4 has no early points.
+- **Wall-clock times.** For LoRA-4, LoRA-16 (updates 626–1250) and OPLoRA (313–1250) the times cover
+  only the segment after the last resume; Full FT and L2-SP are complete runs.
+  `tables/resources_table.csv` has a per-update rate and an extrapolated full-run time, labelled as
+  extrapolated.
+- **Activation diagnostic.** Every GSM8K probe ends on the same chat-template token, so the
+  math-probe R varies very little across examples. Implemented as specified.
+- **GSM8K extraction audit.** Uses lm-eval's flexible-extract filter as the source of truth
+  (per-sample `exact_match`, `filtered_resps`); it reproduces the eval JSON exactly. Truncation =
+  generation reaching the 1024-token cap, measured by re-tokenising.
+- **Qualitative prompts.** From Emergent Misalignment's `first_plot_questions.yaml` (already credited
+  under Attribution). Annotations in `annotation_sheet.csv` are made by hand by the student.
+- **Loss-check fix.** The `_verify_response_loss` dropout fix (toggle only the adapter dropout
+  modules instead of switching the whole model to `eval()`) landed after all reported runs; every
+  reported run was trained before it.
+
 ### Task 2 — Vision-language model
 ```bash
 python -m task2_vlm.features --config configs/task2/data.yaml        # cache SigLIP features (FP16)

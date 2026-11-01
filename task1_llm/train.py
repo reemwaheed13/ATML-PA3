@@ -56,7 +56,7 @@ from common.precision import PrecisionConfig, autocast_context, make_grad_scaler
 from common.resources import Timer, count_params, file_size_bytes, peak_gpu_bytes
 from common.seeding import capture_rng_state, restore_rng_state, seed_all
 
-from .adapters import export_initial_factors
+from .adapters import LoRAOPLoRALinear, export_initial_factors
 from .data import IGNORE_INDEX, iterate_microbatches, load_kept_indices, load_metamathqa
 from .l2sp import build_l2sp
 from .model import (
@@ -193,9 +193,14 @@ def _verify_response_loss(model, decoder, head, batch, *, pcfg, device, amp_enab
 
     # Disable dropout for the check: on resume (B!=0) LoRA dropout would draw different masks in
     # the two forward passes, breaking the equivalence over a noise floor (hf vs new abs_diff ~
-    # dropout rate). eval() both paths and restore the original mode afterwards.
-    was_training = model.training
-    model.eval()
+    # dropout rate). Put ONLY the adapter dropout modules in eval and restore their mode afterwards;
+    # the model itself stays in its current mode so the forward path (and its FP16 backbone / FP32
+    # adapter dtype handling) is exactly the training one. Switching the whole model to eval() made a
+    # fresh run take a different path that crashed in the adapter forward on the FP16/FP32 mismatch.
+    dropouts = [m.dropout for m in model.modules() if isinstance(m, LoRAOPLoRALinear)]
+    dropout_modes = [d.training for d in dropouts]
+    for d in dropouts:
+        d.eval()
     try:
         with autocast_context(pcfg, device_type=device.type, enabled=amp_enabled):
             out = model(input_ids=input_ids, attention_mask=attn, labels=labels)
@@ -205,7 +210,8 @@ def _verify_response_loss(model, decoder, head, batch, *, pcfg, device, amp_enab
             pcfg=pcfg, device=device, amp_enabled=amp_enabled, chunk_rows=chunk_rows,
         )
     finally:
-        model.train(was_training)
+        for d, mode in zip(dropouts, dropout_modes):
+            d.train(mode)
     new_mean = new_sum / n_new if n_new else 0.0
     diff = abs(old_mean - new_mean)
     result = {"type": "loss_equivalence_check", "hf_mean_loss": old_mean,
