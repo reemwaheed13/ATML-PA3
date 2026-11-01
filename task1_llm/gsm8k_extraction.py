@@ -2,23 +2,27 @@
 
 Reads the per-example GSM8K outputs lm-eval wrote during evaluation
 (DRIVE_ROOT/task1/eval/<label>/gsm8k.jsonl) and, per condition, counts:
-  * correct               — flexible-extracted answer matches the gold,
-  * wrong-but-extracted   — a number was extracted but it is wrong,
-  * unextractable         — the flexible-extract regex found no number (scored as incorrect, p3),
+  * correct               — lm-eval scored the flexible-extract answer exact_match == 1,
+  * wrong-but-extracted   — a number was extracted but lm-eval scored it incorrect,
+  * unextractable         — lm-eval's flexible-extract produced "[invalid]"/empty (scored incorrect, p3),
   * truncated             — the generation reached the 1,024-new-token cap, measured by re-tokenizing
                             the raw generation with the Qwen3 tokenizer.
 It also reports, per condition, how often the extracted answer and the correctness flip versus the
 shared baseline. Outputs results/task1/gsm8k_extraction.json plus a compact per-example CSV
 (results/task1/gsm8k_per_example.csv: label, doc_id, extracted, correct, truncated, n_tokens).
 
-Robustness note: the raw sample files live on DRIVE_ROOT (not in the repo), so the field layout is
-auto-detected from each file rather than hardcoded — the raw generation is read from the first
-non-empty of the known lm-eval keys ("resps"/"filtered_resps"/"response"/...), the gold from the
-GSM8K doc's "answer" ("#### <n>") with "target" as fallback, and samples are de-duplicated by
-doc_id (a gsm8k task logs one sample per doc per filter — strict-match and flexible-extract — but
-the raw generation is identical across filters, so we extract once per doc with the flexible rule).
-The recomputed exact-match is cross-checked against the committed eval JSON's
-`exact_match,flexible-extract`; a mismatch is warned (not fatal) and both numbers are recorded.
+Source of truth: lm-eval, not our own parser. Each gsm8k.jsonl holds one row per (doc_id, filter);
+we keep only the flexible-extract rows (matching the "filter" field) and take correctness from the
+per-sample `exact_match` field and the extracted answer from `filtered_resps[0]` ("[invalid]"/empty
+means unextractable). This avoids our parser being more lenient than lm-eval's flexible-extract
+filter on messy baseline outputs. The distinct filter names found in each file are printed.
+
+Robustness note: the raw sample files live on DRIVE_ROOT (not in the repo). Truncation is still
+measured ourselves by re-tokenizing the raw generation (read from the first non-empty of the known
+lm-eval keys, "resps" first) with the Qwen3 tokenizer against the 1,024-new-token cap; samples are
+de-duplicated by doc_id. The recomputed exact-match (mean of lm-eval's per-sample exact_match) is
+cross-checked against the committed eval JSON's `exact_match,flexible-extract`; a mismatch is a hard
+error and both numbers are recorded.
 """
 
 from __future__ import annotations
@@ -26,7 +30,6 @@ from __future__ import annotations
 import csv
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,10 +40,11 @@ from .evaluate import _resolve_conditions
 
 log = logging.getLogger(__name__)
 
-# GSM8K flexible-extract regex (lm-eval gsm8k_cot): the LAST number in the generation is the answer.
-_FLEX_RE = re.compile(r"(-?[$0-9.,]{2,})|(-?[0-9]+)")
 # Candidate keys for the raw generation text, in preference order (differs across lm-eval layouts).
-_RAW_KEYS = ("resps", "filtered_resps", "response", "resp", "generation")
+# "resps" (the full, pre-filter generation) is first — that is what the truncation check re-tokenizes.
+_RAW_KEYS = ("resps", "response", "resp", "generation")
+_FLEXIBLE_FILTER = "flexible-extract"   # the only lm-eval filter rows we score from
+_INVALID_EXTRACTION = ("", "[invalid]")  # filtered_resps[0] values that mean "unextractable"
 _DEFAULT_MAX_NEW_TOKENS = 1024
 _EM_TOL = 0.02          # tolerance when cross-checking recomputed vs eval-JSON flexible exact_match
 
@@ -60,7 +64,7 @@ def _flatten_to_str(value: Any) -> Optional[str]:
 
 
 def _raw_generation(sample: dict[str, Any]) -> Optional[str]:
-    """The full raw generation text (needed for truncation + flexible extraction)."""
+    """The full, pre-filter raw generation text (needed for the truncation measurement)."""
     for key in _RAW_KEYS:
         if key in sample:
             text = _flatten_to_str(sample[key])
@@ -69,38 +73,13 @@ def _raw_generation(sample: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _normalize_number(text: Optional[str]) -> Optional[str]:
-    """Normalize an extracted/gold number string the way gsm8k scoring does: strip $ , and spaces."""
+def _extracted_answer(sample: dict[str, Any]) -> Optional[str]:
+    """lm-eval's flexible-extract answer: filtered_resps[0], or None if "[invalid]"/empty."""
+    text = _flatten_to_str(sample.get("filtered_resps"))
     if text is None:
         return None
-    cleaned = text.replace(",", "").replace("$", "").strip()
-    if cleaned.endswith("."):
-        cleaned = cleaned[:-1]
-    return cleaned or None
-
-
-def _flex_extract(text: Optional[str]) -> Optional[str]:
-    """Return the LAST number in `text` per the flexible-extract regex, or None if none found."""
-    if not text:
-        return None
-    matches = _FLEX_RE.findall(text)
-    if not matches:
-        return None
-    last = matches[-1]
-    return _normalize_number(last[0] or last[1])
-
-
-def _gold_answer(sample: dict[str, Any]) -> Optional[str]:
-    """Gold numeric answer: from the GSM8K doc's 'answer' after '####', else the 'target' field."""
-    doc = sample.get("doc") or {}
-    answer = doc.get("answer")
-    if isinstance(answer, str) and "####" in answer:
-        return _normalize_number(answer.split("####")[-1])
-    target = sample.get("target")
-    if isinstance(target, str):
-        # Target may be the bare number or the full "...#### N" string; take its last number.
-        return _flex_extract(target)
-    return None
+    text = text.strip()
+    return None if text in _INVALID_EXTRACTION else text
 
 
 def _numbers_equal(a: Optional[str], b: Optional[str]) -> bool:
@@ -121,34 +100,40 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def process_condition(samples: list[dict[str, Any]], tokenizer, max_new_tokens: int) -> dict[int, dict]:
-    """Return {doc_id: record} for one condition, de-duplicated by doc_id (first occurrence).
+def process_condition(
+    samples: list[dict[str, Any]], tokenizer, max_new_tokens: int
+) -> tuple[dict[int, dict], set[str]]:
+    """Return ({doc_id: record}, {distinct filter names seen}) for one condition.
 
-    record: {extracted, gold, extractable, correct, n_tokens, truncated}.
+    lm-eval writes one row per (doc_id, filter); we score only the flexible-extract rows,
+    de-duplicated by doc_id (first occurrence). Correctness and extraction come straight from
+    lm-eval (per-sample exact_match, filtered_resps[0]); only truncation is measured ourselves.
+    record: {extracted, extractable, correct, n_tokens, truncated}.
     """
+    filters_seen = {s.get("filter") for s in samples if s.get("filter") is not None}
     records: dict[int, dict[str, Any]] = {}
     for sample in samples:
+        if sample.get("filter") != _FLEXIBLE_FILTER:
+            continue
         doc_id = sample.get("doc_id")
         if doc_id is None or doc_id in records:
             continue
-        raw = _raw_generation(sample)
-        extracted = _flex_extract(raw)
-        gold = _gold_answer(sample)
+        extracted = _extracted_answer(sample)
         extractable = extracted is not None
-        correct = extractable and _numbers_equal(extracted, gold)
+        correct = bool(round(float(sample.get("exact_match", 0.0))))
 
+        raw = _raw_generation(sample)
         n_tokens = len(tokenizer(raw, add_special_tokens=False).input_ids) if raw else 0
         truncated = n_tokens >= max_new_tokens
 
         records[doc_id] = {
             "extracted": extracted,
-            "gold": gold,
             "extractable": extractable,
             "correct": correct,
             "n_tokens": n_tokens,
             "truncated": truncated,
         }
-    return records
+    return records, filters_seen
 
 
 def _eval_json_flexible_em(label: str) -> Optional[float]:
@@ -175,9 +160,11 @@ def _summarize(label: str, records: dict[int, dict], baseline: Optional[dict[int
     recomputed_em = correct / n if n else None
     eval_em = _eval_json_flexible_em(label)
     if recomputed_em is not None and eval_em is not None and abs(recomputed_em - eval_em) > _EM_TOL:
-        log.warning("%s: recomputed flexible exact_match %.4f differs from eval JSON %.4f (>%.2f); "
-                    "extraction/normalization may not exactly match lm-eval.",
-                    label, recomputed_em, eval_em, _EM_TOL)
+        raise ValueError(
+            f"{label}: recomputed flexible exact_match {recomputed_em:.4f} differs from eval JSON "
+            f"{eval_em:.4f} (>{_EM_TOL:.2f}); the mean of lm-eval's per-sample exact_match disagrees "
+            f"with the committed eval JSON — the gsm8k.jsonl and eval JSON are out of sync."
+        )
 
     summary = {
         "n_examples": n,
@@ -233,8 +220,10 @@ def run(eval_cfg: dict[str, Any]) -> dict:
         if not path.exists():
             log.warning("Missing GSM8K samples for %s (%s); skipping.", label, path)
             continue
-        per_condition[label] = process_condition(_load_jsonl(path), tokenizer, max_new_tokens)
-        log.info("%s: %d examples.", label, len(per_condition[label]))
+        records, filters_seen = process_condition(_load_jsonl(path), tokenizer, max_new_tokens)
+        per_condition[label] = records
+        print(f"[gsm8k-extraction] {label}: filters found = {sorted(filters_seen)}", flush=True)
+        log.info("%s: %d flexible-extract examples.", label, len(records))
 
     baseline_records = per_condition.get(baseline_label)
 
