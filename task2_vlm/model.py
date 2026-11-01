@@ -14,6 +14,7 @@ For the no-image condition, visual tokens are omitted and masks/positions rebuil
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Optional
 
 import torch
@@ -200,11 +201,23 @@ class SigLIPQwenVLM(nn.Module):
                  amp_enabled: bool, with_image: bool = True, greedy: bool = True):
         """Greedy generation under an image condition; returns a list of decoded answer strings.
 
-        Examples carry only the prompt (empty answer => labels all IGNORE). Left-padding is used so
-        batched decoder generation aligns the newest token across rows.
+        Examples are built with an empty answer, so their input_ids run through the *full* chat
+        template (including the assistant end-of-turn <|im_end|>\\n). Feeding that whole sequence as
+        the prompt would leave the model sitting after a closed assistant turn, so it emits EOS at
+        once (empty answers). We cut each example back to exactly the context training conditioned on
+        — everything strictly before the first supervised token (first label != IGNORE_INDEX) — so
+        the prompt ends right where the answer (and any template-emitted think block) began. insert_at
+        lies before that cut and is left untouched; we copy each example so the caller's objects are
+        unchanged.
         """
+        trimmed = []
+        for ex in examples:
+            cut = next((i for i, lab in enumerate(ex.labels) if lab != IGNORE_INDEX),
+                       len(ex.input_ids))
+            trimmed.append(dataclasses.replace(ex, input_ids=ex.input_ids[:cut],
+                                               labels=ex.labels[:cut]))
         visual = self._visual_embeds(features, pcfg, amp_enabled) if with_image else None
-        embeds, attn, pos, _ = self.build_inputs(examples, visual, with_image=with_image,
+        embeds, attn, pos, _ = self.build_inputs(trimmed, visual, with_image=with_image,
                                                  pad_side="left")
         with autocast_context(pcfg, device_type=self.device.type, enabled=amp_enabled):
             gen = self.qwen.generate(

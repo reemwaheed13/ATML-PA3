@@ -2,6 +2,7 @@
 # One model carried through all three stages; shared settings at top, per-stage below.
 
 task: task2
+run_id: vlm_stages               # checkpoint/results dir; evaluate.py must read from the same run_id
 seed: 6304                       # p8
 
 models:
