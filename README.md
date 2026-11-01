@@ -166,6 +166,7 @@ Caveats:
 python -m task2_vlm.features --config configs/task2/data.yaml        # cache SigLIP features (FP16)
 python -m task2_vlm.train    --config configs/task2/vlm_stages.yaml  # 3-stage curriculum
 python -m task2_vlm.evaluate --config configs/task2/vlm_stages.yaml  # dev + final grounding eval
+python -m task2_vlm.analysis --config configs/task2/vlm_stages.yaml  # Required Evidence figures + tables (CPU-only)
 # Optional: python -m task2_vlm.train --config configs/task2/compress49.yaml
 ```
 
