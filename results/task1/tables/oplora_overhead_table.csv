@@ -1,0 +1,8 @@
+quantity,value
+basis storage (U_k+V_k),308.00 MiB (float32)
+"SVD preprocessing, all modules",166.88 s
+export OPLoRA (projection + merge),5.758 s
+export LoRA-16 (merge only),1.777 s
+projection overhead,193.9 ms
+total export overhead,3980.8 ms
+trained checkpoint used,True

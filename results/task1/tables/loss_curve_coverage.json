@@ -1,0 +1,30 @@
+{
+  "coverage": {
+    "Full FT": {
+      "first_logged_update": 1,
+      "last": 1250,
+      "source": "logged"
+    },
+    "Full FT + L2-SP": {
+      "first_logged_update": 1,
+      "last": 1250,
+      "source": "logged"
+    },
+    "LoRA-4": {
+      "first_logged_update": 626,
+      "last": 1250,
+      "source": "logged"
+    },
+    "LoRA-16": {
+      "first_logged_update": 626,
+      "last": 1250,
+      "source": "logged from 626; recovered sparse points 1-625"
+    },
+    "OPLoRA": {
+      "first_logged_update": 313,
+      "last": 1250,
+      "source": "logged from 313; recovered sparse points 1-300"
+    }
+  },
+  "note": "y-axis clipped at 0.45; update-1 loss is ~1.02 for all runs"
+}

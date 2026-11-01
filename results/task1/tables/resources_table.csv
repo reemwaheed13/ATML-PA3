@@ -1,0 +1,6 @@
+run,trainable_params,train_time_min,peak_gpu_GiB,final_ckpt_MiB,time_covers_resumed_part_only,l2sp_reference_bytes,timed_updates,sec_per_update,full_run_min_extrapolated
+Full FT,596049920,73.9,20.19,6821.6,False,,1-1250,3.55,74.0
+Full FT + L2-SP,596049920,82.6,20.19,6821.6,False,2384199680.0,1-1250,3.96,82.5
+LoRA-4,2523136,40.7,8.3,29.3,True,,626-1250,3.91,81.5
+LoRA-16,10092544,43.1,8.44,116.0,True,,626-1250,4.14,86.2
+OPLoRA-16,10092544,90.9,9.24,116.0,True,,313-1250,5.81,121.0
