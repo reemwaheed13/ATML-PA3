@@ -1,2 +1,3 @@
 {"type": "feature_cache", "images_total": 144, "images_cached_now": 144, "images_already_cached": 0, "wall_seconds": 4.762773476000007, "peak_gpu_bytes": 650951680, "cache_bytes": 43568760}
 {"type": "feature_cache", "images_total": 35527, "images_cached_now": 35395, "images_already_cached": 132, "wall_seconds": 647.629360684, "peak_gpu_bytes": 650951680, "cache_bytes": 10749072224}
+{"type": "feature_cache", "images_total": 144, "images_cached_now": 0, "images_already_cached": 144, "wall_seconds": 7.069000048431917e-06, "peak_gpu_bytes": 0, "cache_bytes": 43568760}

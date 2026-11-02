@@ -1,0 +1,6 @@
+stage_idx,stage,update,connector_params,adapter_params,total_trainable_params
+0,caption_alignment,0,1837056,0,1837056
+1,visual_instruction_tuning,2250,1837056,4587520,6424576
+1,visual_instruction_tuning,2750,1837056,4587520,6424576
+1,visual_instruction_tuning,3250,1837056,4587520,6424576
+2,natural_vqa,3750,1837056,4587520,6424576

@@ -1,0 +1,2 @@
+run_id,wall_seconds,wall_hours,peak_gpu_bytes,peak_gpu_gb,trainable_params,total_params
+vlm_stages,9700.37920757,2.6945497798805556,10136098304,10.136098304,6424576,602474496

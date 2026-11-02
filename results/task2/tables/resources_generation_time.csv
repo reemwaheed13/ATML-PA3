@@ -1,0 +1,9 @@
+suite,condition,gen_seconds_per_answer
+grounding,correct,0.7133117639999824
+grounding,complementary_swap,0.044070357742185706
+grounding,mismatched,0.043604806484367487
+grounding,no_image,0.11315630502346607
+natural_vqa,correct,0.6971141396666477
+natural_vqa,complementary_swap,0.03837832543228122
+natural_vqa,mismatched,0.039842075338526683
+natural_vqa,no_image,0.12965650728126357
