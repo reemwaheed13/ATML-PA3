@@ -307,11 +307,13 @@ def _live_table(summary: dict) -> None:
     for s in strategies:
         a = summary.get(s, {})
         rows.append([s, a.get("accuracy"), a.get("extraction_rate"), a.get("truncation_rate"),
-                     a.get("mean_output_tokens"), a.get("total_runtime_s"),
+                     a.get("mean_input_tokens"), a.get("mean_output_tokens"),
+                     a.get("total_runtime_s"),
                      a.get("wrong_to_correct", ""), a.get("correct_to_wrong", "")])
     _write_table("live_summary",
-                 ["strategy", "accuracy", "extraction_rate", "truncation_rate", "mean_output_tokens",
-                  "total_runtime_s", "wrong_to_correct", "correct_to_wrong"], rows)
+                 ["strategy", "accuracy", "extraction_rate", "truncation_rate", "mean_input_tokens",
+                  "mean_output_tokens", "total_runtime_s", "wrong_to_correct", "correct_to_wrong"],
+                 rows)
 
 
 def _adaptive_tables(adaptive: dict) -> None:
