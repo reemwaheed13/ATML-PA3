@@ -6,45 +6,52 @@ data:
   root: ${DRIVE_ROOT}/data/ATML-PA3-Data
   readme: ${DRIVE_ROOT}/data/ATML-PA3-Data/README.MD   # field definitions + extraction rule
   models:
-    - {name: Qwen2.5-3B-Instruct, type: llm, dataset: math, questions: 1000, rollouts: 32}
-    - {name: Qwen2.5-VL-3B-Instruct, type: vlm, dataset: mathvista, questions: 1000, rollouts: 32}
+    # `folder` is the on-disk subdirectory under `root` (the real ATML-PA3-Data layout); the loader
+    # builds paths from `folder`, not `name`. `dataset` is the join-key value ("math"/"mathvista").
+    - {name: Qwen2.5-3B-Instruct, folder: qwen25-math, type: llm, dataset: math, questions: 1000, rollouts: 32}
+    - {name: Qwen2.5-VL-3B-Instruct, folder: qwen25vl-mathvista, type: vlm, dataset: mathvista, questions: 1000, rollouts: 32}
   files: [generations.parquet, probability_metrics.parquet]   # VLM also: attention_metrics.parquet
   join_keys: [dataset, sample_id, rollout_id]
   # Token measurements: sampled-token logp and full-distribution kl_u_p are RAW model dists
   # (before sampling transforms). Images not needed for offline analysis.
 
-# Parquet column names, ISOLATED here so matching the real ATML-PA3-Data schema is a config edit,
-# not a code change. PLACEHOLDERS until the supplied README.MD is confirmed — verify/adjust names
-# against README.MD before the first run. The logical keys on the right are what the code uses
-# (and what task3_ttc/signals.py documents as the per-rollout dict schema).
+# Parquet column names, ISOLATED here so matching the ATML-PA3-Data schema is a config edit, not a
+# code change. These are the REAL column names. The logical keys on the right are what the code uses
+# (and what task3_ttc/signals.py documents as the per-rollout dict schema). NOTE: attention_metrics
+# also has a per-token list named `n_generated_text_tokens` that clashes with generations' scalar of
+# the same name; the loader reads attention with an explicit column list that EXCLUDES it.
 columns:
   join:
     dataset: dataset
     sample_id: sample_id
     rollout_id: rollout_id
   generations:
-    text: text
-    token_ids: token_ids
-    length: length
-    extracted: extracted_answer
+    text: generated_text                    # loaded lazily (load_text), NOT in per-rollout dicts
+    token_ids: generated_token_ids          # list[int32]; used only for the length-alignment check
+    length: n_generated_text_tokens         # int32 scalar: number of generated text tokens
+    extracted: extracted_answer             # nullable string
     gold: gold_answer
   probability:
-    logp: logp                      # per-token sampled-token log-probability
-    kl_u_p: kl_u_p                  # per-token KL(U || p_t)
+    logp: logp                      # per-token sampled-token log-probability (list[float])
+    kl_u_p: kl_u_p                  # per-token KL(U || p_t) (list[float])
   attention:                        # VLM only (attention_metrics.parquet): per-token group totals
-    image: attn_image
-    prompt: attn_prompt
-    generated: attn_generated
+    image: img_attn_total
+    prompt: prompt_text_attn_total
+    generated: generated_text_attn_total
 
-# MathVista question metadata columns (required for the MathVista equivalence rules: answer type,
-# choices -> option letters, precision rounding). PLACEHOLDERS — fill the real column names from
-# README.MD. Logical keys on the left are what the equivalence code consumes. Used for the VLM
-# (MathVista) model only; omit/empty for the MATH LLM (math-verify).
-metadata_columns:
-  answer_type: answer_type          # e.g. float | integer | multi_choice | free_form
-  question_type: question_type
-  choices: choices                  # list column -> represented as option letters A, B, ...
-  precision: precision              # int; decimal places for float equivalence
+# MathVista question metadata is NOT in the supplied parquet; it is fetched from the Hugging Face
+# dataset AI4Math/MathVista (split testmini) and cached as a small JSON (metadata only, no images).
+# The loader downloads it WITHOUT the image column (huggingface_hub lists repo files, fetches the
+# testmini parquet, reads only `columns` with pyarrow) and joins to rollouts on `join_key == sample_id`
+# (both as strings). Logical keys consumed by the MathVista equivalence rules: question_type,
+# answer_type, choices (-> option letters), precision (float rounding), unit (trailing-unit strip),
+# answer (metadata gold, used only for the --check self-report, never for grading).
+metadata_source:
+  dataset: AI4Math/MathVista
+  split: testmini
+  join_key: pid
+  columns: [pid, question_type, answer_type, choices, precision, unit, answer]
+  cache: splits/task3/mathvista_metadata.json
 
 splits:
   # Sort 1,000 question IDs lexicographically, permute with NumPy default_rng(6304):

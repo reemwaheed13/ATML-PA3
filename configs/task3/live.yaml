@@ -3,7 +3,7 @@ task: task3_live
 
 model:
   name: Qwen/Qwen2.5-3B-Instruct  # revision listed in ATML-PA3-Data README.MD
-  revision: null                  # TODO: fill from README.MD once confirmed
+  revision: aa8e72537993ba99e69dfaafa59ed015b17504d1  # pinned commit used for the supplied export
   dtype: float16                  # FP16, no quantization
   batch_size: 1
 
