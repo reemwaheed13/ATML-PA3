@@ -503,6 +503,32 @@ def resources(rows: list[dict], final: dict, feature_rows: list[dict],
         written += _write_table(df, "resources_feature_caching", tables_dir,
                                 caption="SigLIP feature caching (full-run row).")
 
+    # Per-stage training time + peak GPU (from stage_timing.json, if present).
+    st_path = _results_dir() / "stage_timing.json"
+    if st_path.exists():
+        st = _load_json(st_path)
+        rows_st = []
+        for s in st.get("stages", []):
+            rows_st.append({
+                "stage_idx": s.get("stage_idx"),
+                "stage": s.get("stage"),
+                "start_weights": s.get("start_weights"),
+                "seconds_per_update": s.get("seconds_per_update"),
+                "timed_updates": s.get("timed_updates"),
+                "stage_updates": s.get("stage_updates"),
+                "estimated_stage_seconds": s.get("estimated_stage_seconds"),
+                "estimated_stage_hours": (s.get("estimated_stage_seconds") or 0) / 3600.0,
+                "peak_gpu_bytes": s.get("peak_gpu_bytes"),
+                "peak_gpu_gb": (s.get("peak_gpu_bytes") or 0) / 1e9,
+            })
+        if rows_st:
+            cap = (st.get("note", "") + " Reference logged final-process wall seconds: "
+                   + str(st.get("final_process_wall_seconds_logged")) + ".")
+            written += _write_table(pd.DataFrame(rows_st), "resources_stage_timing", tables_dir,
+                                    caption=cap)
+    else:
+        print("[task2.analysis] no stage_timing.json; skipping per-stage timing table.")
+
     # Generation time per answer, per suite x condition (from final results).
     gen_rows: list[dict] = []
     for suite in SUITES:

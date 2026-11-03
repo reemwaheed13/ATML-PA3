@@ -294,6 +294,24 @@ def run_final(cfg: dict[str, Any]) -> dict[str, Any]:
     results: dict[str, Any] = {}
     example_rows: list[dict[str, Any]] = []            # one row per (suite, condition, instance)
 
+    # Generation warm-up: run one untimed generate() batch before any timing begins, so CUDA init /
+    # kernel autotuning never lands inside a timed condition and no condition's gen time per answer
+    # includes warm-up. Recorded in the output below.
+    warmup_ran = False
+    warmup_src = next((v for v in suites.values() if v), [])
+    if warmup_src:
+        chunk = warmup_src[:bs]
+        gen_exs = [_example(model, cfg, inst["correct"], inst["question"], "") for inst in chunk]
+        model.generate(gen_exs, _features(model, cfg, gen_exs), max_new_tokens=max_new, pcfg=pcfg,
+                       amp_enabled=amp, with_image=True, greedy=True)
+        warmup_ran = True
+    results["generation_warmup"] = {
+        "ran": warmup_ran,
+        "excluded_from_timing": True,
+        "note": "one untimed generate() batch run before timing; no condition's "
+                "gen_seconds_per_answer includes warm-up.",
+    }
+
     for suite, instances in suites.items():
         if not instances:
             continue

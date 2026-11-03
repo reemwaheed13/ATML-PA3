@@ -450,6 +450,9 @@ def write_image_manifest(cfg: dict[str, Any]) -> dict[str, int]:
 
     manifest_path = os.fspath(REPO_ROOT / cfg.get("manifest", "splits/task2/image_manifest.json"))
     _dump_json(manifest_path, manifest)
+    # Guard: the five eval sets must be pairwise image-disjoint and disjoint from training, so a
+    # cross-suite leak cannot recur (handout p7-p8).
+    assert_eval_train_disjoint(cfg)
     return {"images": len(manifest)}
 
 
@@ -461,6 +464,143 @@ def _pair_images(pair: dict) -> list[int]:
 
 def _maybe(path: str) -> list:
     return _load_json(path) if os.path.exists(path) else []
+
+
+# =================================================================================================
+# Cross-suite image-disjointness guard + one-off repair
+# =================================================================================================
+
+# The five evaluation sets (handout: dev and final-test image-disjoint from each other and from
+# training) and the four training pools/sets.
+EVAL_SETS = ["captions_dev.json", "grounding_dev.json", "grounding_test.json",
+             "natural_vqa_dev.json", "natural_vqa_test.json"]
+TRAIN_SETS = ["captions_train.json", "presence_pool.json", "counting_pool.json",
+              "natural_vqa_train.json"]
+
+
+def _collect_images(path: str) -> set[int]:
+    """Every image id referenced by a split file (captions / grounding pairs / natural-VQA pairs)."""
+    imgs: set[int] = set()
+    for item in _maybe(path):
+        if "questions" in item:                               # natural-VQA pair
+            imgs.update(int(q["image_id"]) for q in item["questions"])
+        elif item.get("type") in ("presence", "counting"):    # grounding pair
+            imgs.update(int(x) for x in _pair_images(item))
+        elif "image_id" in item:                              # caption example
+            imgs.add(int(item["image_id"]))
+    return imgs
+
+
+def assert_eval_train_disjoint(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Assert the 5 eval sets are pairwise image-disjoint and each disjoint from training. (p7-p8)
+
+    Raises AssertionError naming the offending sets + a few shared ids, so a cross-suite leak (like
+    the bus-counting overlap with natural_vqa_test) can never silently recur.
+    """
+    ids_dir = _ids_dir(cfg)
+    eval_imgs = {name: _collect_images(os.path.join(ids_dir, name)) for name in EVAL_SETS}
+    train_imgs: set[int] = set()
+    for name in TRAIN_SETS:
+        train_imgs |= _collect_images(os.path.join(ids_dir, name))
+
+    names = list(eval_imgs)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            shared = eval_imgs[names[i]] & eval_imgs[names[j]]
+            assert not shared, (f"eval sets {names[i]} and {names[j]} share images "
+                                f"{sorted(shared)[:10]} (must be image-disjoint)")
+    for name in names:
+        shared = eval_imgs[name] & train_imgs
+        assert not shared, (f"eval set {name} shares images {sorted(shared)[:10]} with training "
+                            f"(eval must be disjoint from training)")
+    return {"eval_sizes": {n: len(s) for n, s in eval_imgs.items()},
+            "train_images": len(train_imgs)}
+
+
+def repair_grounding_test_disjointness(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Re-draw ONLY the grounding_test pairs whose images collide with another eval set. (write-once)
+
+    Deterministic (seed 6304). Each replaced pair keeps its position, the 'bus'/original category and
+    the counting construction (two val2014 images with different annotated counts in [lo, hi]); every
+    other pair is left byte-identical. Replacement images are drawn from val2014 images not in ANY
+    evaluation set and not in training. Then the manifest is rebuilt (adding the new images, which
+    `features.cache_features` will cache alongside the ones already present) and re-validated, and the
+    stale 'grounding' entry is dropped from the mismatched-image mapping so final eval regenerates it
+    with the existing seeded rule (natural_vqa mapping untouched). Needs the COCO val2014 instances
+    file under DRIVE_ROOT/data, so run on Colab.
+    """
+    ids_dir = _ids_dir(cfg)
+    gt_path = os.path.join(ids_dir, "grounding_test.json")
+    grounding_test = _load_json(gt_path)
+
+    # Images reserved by every OTHER eval set + all training (grounding_test itself handled below).
+    reserved: set[int] = set()
+    for name in EVAL_SETS:
+        if name != "grounding_test.json":
+            reserved |= _collect_images(os.path.join(ids_dir, name))
+    for name in TRAIN_SETS:
+        reserved |= _collect_images(os.path.join(ids_dir, name))
+
+    collide_idx = [i for i, p in enumerate(grounding_test)
+                   if any(int(img) in reserved for img in _pair_images(p))]
+    if not collide_idx:
+        print("[task2.data] grounding_test already disjoint from the other eval sets + training.")
+        return {"replaced": 0}
+    for i in collide_idx:
+        if grounding_test[i].get("type") != "counting":
+            raise SystemExit(f"[task2.data] grounding_test pair {i} collides but is '"
+                             f"{grounding_test[i].get('type')}', not 'counting'; refusing to "
+                             "auto-repair an unexpected case.")
+
+    g = cfg.get("grounding", {})
+    lo, hi = g.get("counting_range", [1, 4])
+    val_inst, cats = _instances_by_image(_load_json(_ann_path(cfg, "instances_val")))
+    name_to_cid = {v: int(k) for k, v in cats.items()}
+
+    # Exclude every current grounding_test image too, so replacements are genuinely new and distinct
+    # from the kept pairs: "val2014 images not in ANY evaluation set and not in training".
+    exclude = set(reserved) | _collect_images(gt_path)
+
+    # Replace each colliding pair with a fresh counting pair of its own object category.
+    rng = np.random.default_rng(SEED)                         # seed 6304
+    new_by_idx: dict[int, dict] = {}
+    for i in collide_idx:
+        obj = grounding_test[i]["object"]
+        cid = name_to_cid.get(obj)
+        if cid is None:
+            raise SystemExit(f"[task2.data] category {obj!r} not found in val instances.")
+        drawn = _counting_pairs(val_inst, {cid: obj}, rng, lo, hi, limit=1, exclude=exclude)
+        if not drawn:
+            raise SystemExit(f"[task2.data] no disjoint '{obj}' counting pair available to replace "
+                             f"grounding_test index {i}.")
+        pair = drawn[0]
+        new_by_idx[i] = pair
+        exclude.update(int(x) for x in _pair_images(pair))    # keep replacements mutually disjoint
+        grounding_test[i] = pair
+
+    _dump_json(gt_path, grounding_test)
+
+    # Rebuild the manifest from the edited splits (also re-runs the disjointness assertion).
+    manifest = write_image_manifest(cfg)
+
+    # Drop the stale grounding mismatched mapping so evaluate.py regenerates it (keep natural_vqa).
+    mm_path = os.fspath(REPO_ROOT / "splits/task2/mismatched_mapping.json")
+    dropped = False
+    if os.path.exists(mm_path):
+        with open(mm_path, encoding="utf-8") as f:
+            mm = json.load(f)
+        if "grounding" in mm:
+            mm.pop("grounding")
+            with open(mm_path, "w", encoding="utf-8") as f:
+                json.dump(mm, f)
+            dropped = True
+
+    summary = {"replaced": len(collide_idx), "indices": collide_idx,
+               "new_pairs": {i: new_by_idx[i] for i in collide_idx},
+               "manifest_images": manifest["images"], "dropped_grounding_mapping": dropped}
+    print(f"[task2.data] repaired grounding_test: replaced pairs {collide_idx}; "
+          f"manifest now {manifest['images']} images; grounding mapping dropped={dropped}.")
+    return summary
 
 
 # =================================================================================================
@@ -652,11 +792,20 @@ def main() -> None:
     from common.seeding import seed_all
 
     parser = build_arg_parser("Freeze Task-2 COCO/VQAv2 selections + image manifest.")
+    parser.add_argument("--repair-grounding-disjointness", action="store_true",
+                        help="Re-draw ONLY the grounding_test pairs that collide with another eval "
+                             "set (deterministic, seed 6304); rebuild the manifest and drop the "
+                             "stale grounding mismatched mapping. Leaves every other split "
+                             "byte-identical. Requires the COCO val2014 instances file.")
     args = parser.parse_args()
     if args.drive_root:
         os.environ["DRIVE_ROOT"] = args.drive_root
     seed_all(SEED)
     cfg = load_yaml(args.config)
+    if args.repair_grounding_disjointness:
+        summary = repair_grounding_test_disjointness(cfg)
+        print("[task2.data] grounding-test repair:", summary)
+        return
     summary = freeze_all(cfg)
     print("[task2.data] froze selections:")
     for k, v in summary.items():

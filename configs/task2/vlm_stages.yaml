@@ -95,3 +95,10 @@ checkpoint:
 
 eval:
   config: configs/task2/eval.yaml
+
+# Per-stage training-time measurement (task2_vlm.time_stages): warm-up then timed real updates per
+# stage, from each stage's starting weights. Independent of the long run; saves nothing over
+# existing checkpoints/results (only results/task2/stage_timing.json).
+stage_timing:
+  warmup_updates: 5
+  timed_updates: 50
