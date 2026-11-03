@@ -26,7 +26,10 @@ The scorer is frozen before final evaluation; SCORER_VERSION keys the on-disk ca
 
 from __future__ import annotations
 
+import inspect
 import json
+import logging
+import math
 import os
 import re
 import time
@@ -41,7 +44,7 @@ from common.paths import REPO_ROOT, ensure_dir, task3_dir
 NO_ANSWER = "NO_ANSWER"
 
 # Bump when the scoring logic changes so stale group/correctness caches are ignored.
-SCORER_VERSION = "t3-scorer-1"
+SCORER_VERSION = "t3-scorer-2"
 
 
 @dataclass
@@ -401,40 +404,115 @@ def _mathvista_canonical(ans, metadata: Optional[dict]) -> str:
 # =================================================================================================
 
 _MATH_VERIFY: Any = None
+_MV_PARSE_KW: dict = {}                 # timeout kwarg for math_verify.parse (name resolved at load)
+_MV_VERIFY_KW: dict = {}               # timeout kwarg for math_verify.verify
+_MATH_TIMEOUT = 1                      # seconds; a timeout is treated as NOT equivalent
+_NUM_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
+
+# Candidate parameter names math-verify has used across versions for the parse/verify timeout.
+_TIMEOUT_PARAM_NAMES = ("timeout_seconds", "parsing_timeout", "timeout")
+
+
+class _TimeoutCounter(logging.Handler):
+    """Count math-verify log records that mention a timeout ("Timeout during comparison")."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            msg = ""
+        if "timeout" in msg.lower():
+            self.count += 1
+
+
+_TIMEOUT_HANDLER = _TimeoutCounter()
+
+
+def _reset_timeout_count() -> None:
+    _TIMEOUT_HANDLER.count = 0
+
+
+def _get_timeout_count() -> int:
+    return _TIMEOUT_HANDLER.count
+
+
+def _install_timeout_handler() -> None:
+    lg = logging.getLogger("math_verify")
+    if _TIMEOUT_HANDLER not in lg.handlers:
+        lg.addHandler(_TIMEOUT_HANDLER)
+    if lg.level == logging.NOTSET or lg.level > logging.WARNING:
+        lg.setLevel(logging.WARNING)       # timeouts are logged as warnings; let them through
+
+
+def _timeout_kwargs(func, seconds) -> dict:
+    """Return {param: seconds} using whichever timeout parameter `func` actually declares."""
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return {}
+    for name in _TIMEOUT_PARAM_NAMES:
+        if name in params:
+            return {name: seconds}
+    return {}
 
 
 def _get_math_verify():
     """Return (parse, verify) from math-verify, or None if unavailable (string fallback then)."""
-    global _MATH_VERIFY
+    global _MATH_VERIFY, _MV_PARSE_KW, _MV_VERIFY_KW
     if _MATH_VERIFY is None:
         try:
             from math_verify import parse, verify
             _MATH_VERIFY = (parse, verify)
+            _MV_PARSE_KW = _timeout_kwargs(parse, _MATH_TIMEOUT)
+            _MV_VERIFY_KW = _timeout_kwargs(verify, _MATH_TIMEOUT)
+            _install_timeout_handler()
         except Exception:
             _MATH_VERIFY = False
     return _MATH_VERIFY or None
 
 
-def _wrap_math(s: str) -> str:
-    """Wrap a bare answer so math-verify parses it as math (unless it already has math delimiters)."""
-    s = str(s).strip()
-    if not s or "\\boxed" in s or "$" in s:
-        return s
-    return f"${s}$"
+def _sanitize_math(s: str) -> str:
+    """Normalize a MATH answer for comparison/parse ONLY (the stored raw answer is never changed).
+
+    Removes currency ("\\$"/bare "$"), spacing macros ("\\!", "\\,"), unwraps \\text{...}, drops
+    thousands separators inside digit groups ("15,\\!000" -> "15000"), and strips a trailing period
+    and surrounding whitespace.
+    """
+    s = _TEXT_RE.sub(r"\1", str(s))                        # unwrap \text{...}
+    s = s.replace("\\!", "").replace("\\,", "")
+    s = s.replace("\\$", "").replace("$", "")
+    s = _THOUSANDS_RE.sub("", s)                           # digit,digit thousands separators
+    return s.strip().rstrip(".").strip()
 
 
 @lru_cache(maxsize=None)
 def _parse_math(s: str):
+    """Parse the SANITIZED answer, always wrapped as $...$ so bare/currency answers parse."""
     mv = _get_math_verify()
-    return mv[0](_wrap_math(s)) if mv else None
+    if not mv:
+        return None
+    san = _sanitize_math(s)
+    return mv[0](f"${san}$" if san else san, **_MV_PARSE_KW)
 
 
 def _math_equivalent(a: str, b: str) -> bool:
-    """MATH equivalence via math-verify (cached parse), with a normalized-string fallback."""
+    """MATH equivalence: identical-string / plain-number fast paths, then math-verify (timeout)."""
+    sa, sb = _sanitize_math(a), _sanitize_math(b)
+    if _norm_math(sa) == _norm_math(sb):                   # identical after sanitizing -> equivalent
+        return True
+    if _NUM_RE.match(sa) and _NUM_RE.match(sb):            # both plain numbers -> float compare
+        try:
+            return math.isclose(float(sa), float(sb), rel_tol=1e-9, abs_tol=1e-12)
+        except ValueError:
+            pass
     mv = _get_math_verify()
     if mv:
         try:
-            return bool(mv[1](_parse_math(a), _parse_math(b)))
+            return bool(mv[1](_parse_math(a), _parse_math(b), **_MV_VERIFY_KW))
         except Exception:
             pass
     return _norm_math(a) == _norm_math(b)
@@ -452,7 +530,7 @@ def math_gold_self_verify(golds) -> tuple[float, list[str]]:
     ok = 0
     for g in distinct:
         try:
-            if mv[1](_parse_math(g), _parse_math(g)):
+            if mv[1](_parse_math(g), _parse_math(g), **_MV_VERIFY_KW):
                 ok += 1
             else:
                 fails.append(g)
@@ -554,11 +632,12 @@ def _q_payload(q: QuestionRollouts) -> tuple:
 
 
 def _score_question(payload: tuple):
-    """Top-level (picklable) worker: compute groups + correctness for one question."""
+    """Top-level (picklable) worker: groups + correctness + math-verify timeout count for one question."""
     dataset, sid, answers, gold, metadata, rollout_ids = payload
+    _reset_timeout_count()
     groups = answer_groups(answers, dataset, metadata)
     correct = correctness_labels(groups, gold, dataset, answers, metadata)
-    return sid, list(zip(rollout_ids, groups, correct))
+    return sid, list(zip(rollout_ids, groups, correct)), _get_timeout_count()
 
 
 def _scorer_cache_path(dataset: str):
@@ -583,11 +662,14 @@ def _groups_from_table(tbl) -> dict[str, dict]:
 
 
 def compute_groups(cfg: dict[str, Any], model_spec: dict[str, Any], questions: list[QuestionRollouts],
-                   *, use_cache: bool = True, processes: Optional[int] = None) -> dict[str, dict]:
+                   *, use_cache: bool = True, processes: Optional[int] = None,
+                   progress_every: int = 0, stats: Optional[dict] = None) -> dict[str, dict]:
     """Groups + correctness per (dataset, sample_id, rollout_id), cached to DRIVE_ROOT/task3/cache.
 
     Returns {sample_id -> {"rollout_ids", "groups", "correct"}}. The cache is a parquet keyed on
-    SCORER_VERSION (reruns skip recomputation). MATH grouping is parallelized across questions.
+    SCORER_VERSION (reruns skip recomputation). MATH grouping is parallelized across questions. If
+    `stats` is given it is filled with {"timeouts_total", "questions_with_timeout"}; `progress_every`
+    > 0 prints progress that often during (re)computation.
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -602,12 +684,32 @@ def compute_groups(cfg: dict[str, Any], model_spec: dict[str, Any], questions: l
             return _groups_from_table(tbl)
 
     payloads = [_q_payload(q) for q in questions]
-    if _is_math(dataset) and processes != 1 and len(payloads) > 1:
+    total = len(payloads)
+    results: list[tuple] = []
+    timeouts_total = 0
+    questions_with_timeout = 0
+
+    def _consume(iterable) -> None:
+        nonlocal timeouts_total, questions_with_timeout
+        for i, (sid, per, n_to) in enumerate(iterable, 1):
+            results.append((sid, per))
+            timeouts_total += n_to
+            if n_to:
+                questions_with_timeout += 1
+            if progress_every and i % progress_every == 0:
+                print(f"  [grouping] {i}/{total} questions (timeouts so far: {timeouts_total})",
+                      flush=True)
+
+    if _is_math(dataset) and processes != 1 and total > 1:
         import multiprocessing as mp
         with mp.Pool(processes) as pool:
-            results = pool.map(_score_question, payloads)
+            _consume(pool.imap(_score_question, payloads, chunksize=8))
     else:
-        results = [_score_question(pl) for pl in payloads]
+        _consume(_score_question(pl) for pl in payloads)
+
+    if stats is not None:
+        stats["timeouts_total"] = timeouts_total
+        stats["questions_with_timeout"] = questions_with_timeout
 
     mapping: dict[str, dict] = {}
     cols: dict[str, list] = {k: [] for k in
@@ -677,7 +779,9 @@ def run_checks(cfg: dict[str, Any]) -> None:
             _report_mathvista_metadata(cfg, questions)
 
         t1 = time.perf_counter()
-        gmap = compute_groups(cfg, spec, questions, use_cache=False)
+        gstats: dict[str, int] = {}
+        gmap = compute_groups(cfg, spec, questions, use_cache=False,
+                              progress_every=100, stats=gstats)
         group_s = time.perf_counter() - t1
 
         distinct_counts, no_answer = [], 0
@@ -692,6 +796,10 @@ def run_checks(cfg: dict[str, Any]) -> None:
         na_rate = no_answer / total_roll if total_roll else 0.0
         print(f"mean distinct answer groups/question: {mean_distinct:.3f}")
         print(f"NO_ANSWER rate: {na_rate:.4f} ({no_answer}/{total_roll})")
+        if _is_math(dataset):
+            print(f"math-verify timeouts: {gstats.get('timeouts_total', 0)} total across "
+                  f"{gstats.get('questions_with_timeout', 0)} questions "
+                  f"(a timeout is treated as NOT equivalent)")
         print(f"timing: load={load_s:.1f}s grouping={group_s:.1f}s")
 
 
