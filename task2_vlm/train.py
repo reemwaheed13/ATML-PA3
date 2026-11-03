@@ -305,7 +305,11 @@ def train(cfg: dict[str, Any], *, resume: bool = False, stop_after: int | None =
         )
         path = checkpoint_path(os.fspath(ckpt_dir), update)
         save_checkpoint(path, state)
-        prune_checkpoints(os.fspath(ckpt_dir), keep_steps={update})
+        # Keep the newest checkpoint plus every stage-end checkpoint (cumulative stage boundaries,
+        # e.g. 2250/3750/4500) so the handout's "save weights after each stage" survives later
+        # saves; ordinary recovery checkpoints are still pruned.
+        stage_end_updates = {g1 for (_g0, g1) in bounds}
+        prune_checkpoints(os.fspath(ckpt_dir), keep_steps={update} | stage_end_updates)
         logger.log({"type": "peak_gpu", "update": update, "after": "checkpoint_save",
                     "peak_gpu_bytes": peak_gpu_bytes()})
 

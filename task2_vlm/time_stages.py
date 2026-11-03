@@ -164,16 +164,25 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
                 start_desc = "fresh_connector (no calibration row found; scale=1.0)"
         else:
             path = ckpts.get(start_step)
-            if path is None:
-                print(f"[task2.time_stages] no checkpoint at update {start_step} (end of stage "
-                      f"{stage_idx - 1}) in {ckpt_dir}; available steps={sorted(ckpts)}. "
-                      f"Skipping stage {stage_idx} ({stage_cfg['name']}).", flush=True)
+            if path is not None:
+                _load_weights(model, load_checkpoint(path).weights)
+                start_desc = f"checkpoint@update{start_step}"
+            elif ckpts:
+                # Stage-start checkpoint missing: fall back to the latest available weights. Seconds
+                # per update and peak memory depend on shapes, trainable params, and data, not on the
+                # weight values, so this still yields valid per-stage timing (with this stage's own
+                # config: LoRA/mixture/LRs applied below in _time_stage).
+                fb_step = max(ckpts)
+                _load_weights(model, load_checkpoint(ckpts[fb_step]).weights)
+                start_desc = (f"fallback: checkpoint@update{fb_step} (stage-start checkpoint "
+                              "missing; timing is weight-independent)")
+            else:
+                print(f"[task2.time_stages] no checkpoint at all in {ckpt_dir}; cannot time stage "
+                      f"{stage_idx} ({stage_cfg['name']}). Skipping.", flush=True)
                 del model
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 continue
-            _load_weights(model, load_checkpoint(path).weights)
-            start_desc = f"checkpoint@update{start_step}"
 
         print(f"[task2.time_stages] timing stage {stage_idx} ({stage_cfg['name']}) from "
               f"{start_desc}: {warmup} warm-up + {timed} timed updates...", flush=True)
