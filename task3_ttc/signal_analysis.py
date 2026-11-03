@@ -30,8 +30,9 @@ from . import signals
 from .offline import _sig_params
 from .splits import make_splits
 
-TRAJ_RULE = ("within each question's full 32-candidate pool (VisConf calibrated over the pool), "
-             "the rollouts with the highest and the lowest Z_i")
+TRAJ_RULE = ("first 3 MathVista eval questions in split permutation order whose 32-rollout pool "
+             "contains both correct and incorrect rollouts; within each, the rollouts with the "
+             "highest and lowest Z_i (VisConf calibrated over the full pool)")
 
 
 def _rankdata(a: np.ndarray) -> np.ndarray:

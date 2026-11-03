@@ -83,24 +83,46 @@ def _best_rwc(ds: dict, dataset: str, budgets: list[int]) -> str:
 # Figures
 # =================================================================================================
 
+_LINESTYLES = ["-", "--", "-.", ":"]
+_MARKERS = ["o", "s", "^", "v", "D", "P", "X", "*", "<", ">", "h", "p"]
+
+
+def _rule_styles(rules: list[str], cmap) -> dict[str, dict]:
+    """A unique (color, linestyle, marker) per rule from the tab20 colormap."""
+    return {r: {"color": cmap(i % 20), "linestyle": _LINESTYLES[i % len(_LINESTYLES)],
+                "marker": _MARKERS[i % len(_MARKERS)]} for i, r in enumerate(rules)}
+
+
+def _plot_rule(ax, r: str, x, y, styles: dict, *, label=None) -> None:
+    """Draw one rule; self_consistency is a thicker black line, others use their tab20 style."""
+    if r == "self_consistency":
+        ax.plot(x, y, color="black", linewidth=2.5, marker="o", label=label or r, zorder=4)
+    else:
+        s = styles[r]
+        ax.plot(x, y, color=s["color"], linestyle=s["linestyle"], marker=s["marker"], markersize=5,
+                label=label or r)
+
+
 def _figures(offline: dict, adaptive: Optional[dict]) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    cmap = plt.get_cmap("tab20")
     for dataset, ds in offline.items():
         budgets = [int(b) for b in ds["budgets"]]
         Ns = [str(b) for b in budgets]
         rules = _rules_of(ds)
+        styles = _rule_styles(rules, cmap)
 
         # 1) accuracy + oracle coverage vs N
         fig, ax = plt.subplots(figsize=(6, 4))
         for r in ("first_ans", "self_consistency"):
             if r in ds:
-                ax.plot(budgets, [ds[r][n]["accuracy"] for n in Ns], marker="o", label=r)
+                _plot_rule(ax, r, budgets, [ds[r][n]["accuracy"] for n in Ns], styles)
         if "self_consistency" in ds:
             ax.plot(budgets, [ds["self_consistency"][n]["oracle_coverage"] for n in Ns],
-                    marker="s", linestyle="--", label="oracle coverage")
+                    color="grey", linestyle="--", marker="s", label="oracle coverage")
         ax.set_xscale("log", base=2); ax.set_xlabel("N (candidates)"); ax.set_ylabel("rate")
         ax.set_title(f"{dataset}: accuracy & oracle vs N"); ax.legend(fontsize=7)
         fig.tight_layout(); fig.savefig(os.fspath(FIG / f"accuracy_vs_N_{dataset}.png"), dpi=130)
@@ -109,14 +131,14 @@ def _figures(offline: dict, adaptive: Optional[dict]) -> None:
         # 2) accuracy vs mean generated-token cost, all rules + adaptive overlay
         fig, ax = plt.subplots(figsize=(6, 4))
         for r in rules:
-            ax.plot([ds[r][n]["generated_token_cost"] for n in Ns],
-                    [ds[r][n]["accuracy"] for n in Ns], marker=".", label=r)
+            _plot_rule(ax, r, [ds[r][n]["generated_token_cost"] for n in Ns],
+                       [ds[r][n]["accuracy"] for n in Ns], styles)
         if adaptive and dataset in adaptive:
             for ctrl in ("agreement_based", "quality_aware"):
                 c = adaptive[dataset].get(ctrl, {})
                 if "eval_mean_token_cost" in c:
-                    ax.scatter([c["eval_mean_token_cost"]], [c["eval_accuracy"]], s=80, marker="*",
-                               zorder=5, label=f"adaptive:{ctrl}")
+                    ax.scatter([c["eval_mean_token_cost"]], [c["eval_accuracy"]], s=90, marker="*",
+                               zorder=5, edgecolor="black", label=f"adaptive:{ctrl}")
         ax.set_xlabel("mean generated-token cost"); ax.set_ylabel("accuracy")
         ax.set_title(f"{dataset}: accuracy vs cost"); ax.legend(fontsize=6)
         fig.tight_layout(); fig.savefig(os.fspath(FIG / f"acc_vs_cost_{dataset}.png"), dpi=130)
@@ -127,10 +149,12 @@ def _figures(offline: dict, adaptive: Optional[dict]) -> None:
         fig, ax = plt.subplots(figsize=(6, 4))
         for r in ("self_consistency", best):
             if r in ds:
-                ax.plot(budgets, [ds[r][n]["fail_no_correct"] for n in Ns], marker="o",
-                        label=f"{r}: no correct generated")
-                ax.plot(budgets, [ds[r][n]["fail_missed"] for n in Ns], marker="s", linestyle="--",
-                        label=f"{r}: correct missed")
+                col = "black" if r == "self_consistency" else styles[r]["color"]
+                lw = 2.5 if r == "self_consistency" else 1.5
+                ax.plot(budgets, [ds[r][n]["fail_no_correct"] for n in Ns], color=col, linewidth=lw,
+                        marker="o", label=f"{r}: no correct generated")
+                ax.plot(budgets, [ds[r][n]["fail_missed"] for n in Ns], color=col, linewidth=lw,
+                        marker="s", linestyle="--", label=f"{r}: correct missed")
         ax.set_xscale("log", base=2); ax.set_xlabel("N"); ax.set_ylabel("failure rate")
         ax.set_title(f"{dataset}: failure decomposition"); ax.legend(fontsize=7)
         fig.tight_layout(); fig.savefig(os.fspath(FIG / f"failure_decomp_{dataset}.png"), dpi=130)

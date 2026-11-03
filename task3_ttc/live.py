@@ -90,13 +90,16 @@ def _generate(model, tokenizer, device, messages, *, max_new_tokens: int, sampli
               seed: int) -> dict[str, Any]:
     """One chat-templated generation; records prompt, response, tokens, truncation, seed, wall time."""
     torch.manual_seed(seed)
+    # transformers 5.x: apply_chat_template(return_tensors=...) returns a BatchEncoding (dict), so
+    # tokenize the rendered string explicitly to keep a plain input_ids tensor for generate().
     prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-    input_ids = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True, return_tensors="pt").to(device)
+    enc = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+    input_ids = enc["input_ids"].to(device)
+    attention_mask = enc["attention_mask"].to(device)
     _sync(device)
     t0 = time.perf_counter()
     gen = model.generate(
-        input_ids, max_new_tokens=max_new_tokens, do_sample=True,
+        input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, do_sample=True,
         temperature=float(sampling.get("temperature", 0.7)),
         top_p=float(sampling.get("top_p", 0.8)), top_k=int(sampling.get("top_k", 20)),
         repetition_penalty=float(sampling.get("repetition_penalty", 1.0)),
@@ -107,10 +110,13 @@ def _generate(model, tokenizer, device, messages, *, max_new_tokens: int, sampli
     out_ids = gen[0][input_ids.shape[1]:]
     text = tokenizer.decode(out_ids, skip_special_tokens=True)
     answer = extract_last_boxed(text)
+    im_end = tokenizer.convert_tokens_to_ids("<|im_end|>")
+    stop_ids = {tokenizer.eos_token_id, im_end}
+    last = int(out_ids[-1]) if out_ids.shape[0] else None
+    truncated = bool(out_ids.shape[0] >= max_new_tokens and last not in stop_ids)
     return {"prompt": prompt, "text": text, "answer": answer,
             "input_tokens": int(input_ids.shape[1]), "output_tokens": int(out_ids.shape[0]),
-            "truncated": bool(int(out_ids.shape[0]) >= max_new_tokens), "seed": int(seed),
-            "time": float(dt)}
+            "truncated": truncated, "seed": int(seed), "time": float(dt)}
 
 
 def _messages(cfg: dict[str, Any], problem: str) -> list[dict]:
