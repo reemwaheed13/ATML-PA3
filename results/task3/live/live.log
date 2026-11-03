@@ -1,0 +1,55 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[task3.live] 0 already done; running 50 of 50.
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files:  50%|█████     | 1/2 [00:19<00:19, 19.35s/it]Fetching 2 files: 100%|██████████| 2/2 [00:19<00:00,  9.67s/it]
+Loading weights:   0%|          | 0/434 [00:00<?, ?it/s]Loading weights:   0%|          | 1/434 [00:00<01:31,  4.73it/s]Loading weights:  26%|██▌       | 111/434 [00:00<00:00, 437.00it/s]Loading weights:  40%|███▉      | 173/434 [00:00<00:00, 456.05it/s]Loading weights:  53%|█████▎    | 231/434 [00:00<00:00, 478.20it/s]Loading weights:  66%|██████▌   | 286/434 [00:00<00:00, 480.98it/s]Loading weights:  78%|███████▊  | 339/434 [00:00<00:00, 492.91it/s]Loading weights:  90%|█████████ | 392/434 [00:00<00:00, 503.08it/s]Loading weights: 100%|██████████| 434/434 [00:00<00:00, 463.10it/s]
+[task3.live] test:943 single=True par=True refine=True
+[task3.live] test:2688 single=True par=True refine=False
+[task3.live] test:3504 single=True par=False refine=True
+[task3.live] test:4335 single=True par=True refine=True
+[task3.live] test:2460 single=False par=False refine=False
+[task3.live] test:1324 single=False par=False refine=False
+[task3.live] test:2340 single=True par=True refine=True
+[task3.live] test:1577 single=True par=True refine=True
+[task3.live] test:639 single=False par=True refine=True
+[task3.live] test:2892 single=False par=False refine=False
+[task3.live] test:4702 single=True par=False refine=False
+[task3.live] test:1709 single=False par=False refine=False
+[task3.live] test:4041 single=True par=True refine=True
+[task3.live] test:2119 single=False par=False refine=False
+[task3.live] test:2087 single=True par=True refine=True
+[task3.live] test:4549 single=False par=False refine=False
+[task3.live] test:2732 single=False par=False refine=False
+[task3.live] test:1433 single=True par=True refine=True
+[task3.live] test:3285 single=True par=False refine=False
+[task3.live] test:29 single=True par=False refine=False
+[task3.live] test:2948 single=False par=False refine=False
+[task3.live] test:1997 single=True par=True refine=True
+[task3.live] test:414 single=False par=False refine=False
+[task3.live] test:1808 single=True par=True refine=True
+[task3.live] test:4962 single=True par=True refine=True
+[task3.live] test:274 single=True par=True refine=True
+[task3.live] test:916 single=True par=True refine=True
+[task3.live] test:534 single=True par=True refine=True
+[task3.live] test:2177 single=False par=False refine=False
+[task3.live] test:1043 single=True par=True refine=True
+[task3.live] test:373 single=True par=True refine=True
+[task3.live] test:1379 single=False par=False refine=False
+[task3.live] test:196 single=True par=False refine=False
+[task3.live] test:2134 single=True par=True refine=False
+[task3.live] test:771 single=True par=True refine=True
+[task3.live] test:3572 single=False par=False refine=False
+[task3.live] test:2358 single=False par=False refine=False
+[task3.live] test:2019 single=True par=True refine=True
+[task3.live] test:4144 single=True par=True refine=True
+[task3.live] test:3314 single=True par=True refine=True
+[task3.live] test:3239 single=True par=True refine=True
+[task3.live] test:4678 single=True par=True refine=False
+[task3.live] test:1122 single=True par=True refine=True
+[task3.live] test:4168 single=True par=True refine=True
+[task3.live] test:1300 single=True par=True refine=True
+[task3.live] test:4516 single=False par=False refine=False
+[task3.live] test:1903 single=True par=False refine=False
+[task3.live] test:1916 single=False par=False refine=False
+[task3.live] test:3409 single=False par=True refine=True
+[task3.live] test:3617 single=True par=True refine=True
+[task3.live] wrote summary for 50 questions -> /content/drive/MyDrive/ATML-PA3/task3/live/live_summary.json

@@ -200,7 +200,20 @@
     ]
   },
   "revision": {
-    "wrong_to_correct": [],
+    "wrong_to_correct": [
+      {
+        "sample_id": "test:3504",
+        "gold": "216",
+        "initial_answer": "NO_ANSWER",
+        "revised_answer": "216"
+      },
+      {
+        "sample_id": "test:1122",
+        "gold": "5",
+        "initial_answer": "NO_ANSWER",
+        "revised_answer": "5"
+      }
+    ],
     "correct_to_wrong": []
   }
 }

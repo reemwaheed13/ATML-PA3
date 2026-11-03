@@ -1,0 +1,48 @@
+{
+  "n_questions": 50,
+  "peak_gpu_bytes": 6454846464,
+  "single_long": {
+    "accuracy": 0.66,
+    "extraction_rate": 0.98,
+    "truncation_rate": 0.02,
+    "mean_input_tokens": 108.38,
+    "mean_output_tokens": 730.9,
+    "total_input_tokens": 5419,
+    "total_output_tokens": 36545,
+    "total_runtime_s": 1566.9132952890018,
+    "mean_runtime_s": 31.338265905780034
+  },
+  "parallel": {
+    "accuracy": 0.58,
+    "extraction_rate": 0.82,
+    "truncation_rate": 0.24,
+    "mean_input_tokens": 325.14,
+    "mean_output_tokens": 1862.78,
+    "total_input_tokens": 16257,
+    "total_output_tokens": 93139,
+    "total_runtime_s": 3989.893094820997,
+    "mean_runtime_s": 79.79786189641993,
+    "per_response_truncation_rate": [
+      0.18,
+      0.18,
+      0.1
+    ],
+    "wrong_to_correct": 4,
+    "correct_to_wrong": 0
+  },
+  "sequential_refinement": {
+    "accuracy": 0.54,
+    "extraction_rate": 0.98,
+    "truncation_rate": 0.18,
+    "mean_input_tokens": 878.04,
+    "mean_output_tokens": 1185.64,
+    "total_input_tokens": 43902,
+    "total_output_tokens": 59282,
+    "total_runtime_s": 2544.6251246630018,
+    "mean_runtime_s": 50.89250249326003,
+    "truncation_rate_initial": 0.18,
+    "truncation_rate_revision": 0.02,
+    "wrong_to_correct": 2,
+    "correct_to_wrong": 0
+  }
+}
