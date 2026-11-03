@@ -1,0 +1,664 @@
+{
+  "math": {
+    "fixed_n_self_consistency": {
+      "4": {
+        "accuracy": 0.67625,
+        "cost": 2666.3246249999997
+      },
+      "8": {
+        "accuracy": 0.6978750000000001,
+        "cost": 5327.0848750000005
+      },
+      "16": {
+        "accuracy": 0.712375,
+        "cost": 10666.694
+      },
+      "32": {
+        "accuracy": 0.7213749999999999,
+        "cost": 21347.0175
+      }
+    },
+    "agreement_based": {
+      "frozen": {
+        "params": {
+          "tau": 0.625
+        },
+        "dev_accuracy": 0.8195,
+        "dev_cost": 7296.658999999999,
+        "dev_mean_rollouts": 9.352,
+        "ref_fixed32_accuracy": 0.82
+      },
+      "dev_grid": [
+        {
+          "params": {
+            "tau": 0.5
+          },
+          "dev_accuracy": 0.8029999999999999,
+          "dev_cost": 5017.108,
+          "dev_mean_rollouts": 6.575999999999999
+        },
+        {
+          "params": {
+            "tau": 0.625
+          },
+          "dev_accuracy": 0.8195,
+          "dev_cost": 7296.658999999999,
+          "dev_mean_rollouts": 9.352
+        },
+        {
+          "params": {
+            "tau": 0.75
+          },
+          "dev_accuracy": 0.8205,
+          "dev_cost": 7807.461499999999,
+          "dev_mean_rollouts": 10.168
+        },
+        {
+          "params": {
+            "tau": 0.875
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 10075.296,
+          "dev_mean_rollouts": 13.806
+        },
+        {
+          "params": {
+            "tau": 1.0
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 11025.6285,
+          "dev_mean_rollouts": 15.55
+        },
+        {
+          "params": {
+            "always_32": true
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 18322.4,
+          "dev_mean_rollouts": 32.0
+        }
+      ],
+      "eval_accuracy": 0.71875,
+      "eval_mean_token_cost": 10186.759375000001,
+      "stop_count_distribution": {
+        "4": 5352,
+        "8": 400,
+        "16": 107,
+        "32": 2141
+      },
+      "stop_count_fractions": {
+        "4": 0.669,
+        "8": 0.05,
+        "16": 0.013375,
+        "32": 0.267625
+      },
+      "incorrect_early_stops": 782,
+      "recoverable_by_fixed32": 54,
+      "accuracy_minus_fixed32_bootstrap": {
+        "mean": -0.0026249999999999997,
+        "ci95": [
+          -0.006128125,
+          0.001
+        ]
+      },
+      "eval_mean_rollouts": 11.854000000000001
+    },
+    "quality_aware": {
+      "frozen": {
+        "params": {
+          "tau": 0.5,
+          "gamma": 0.25
+        },
+        "dev_accuracy": 0.8130000000000002,
+        "dev_cost": 6364.18,
+        "dev_mean_rollouts": 8.34,
+        "ref_fixed32_accuracy": 0.82
+      },
+      "dev_grid": [
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.8075,
+          "dev_cost": 5563.259499999999,
+          "dev_mean_rollouts": 7.244
+        },
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.809,
+          "dev_cost": 5862.9445,
+          "dev_mean_rollouts": 7.68
+        },
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.8130000000000002,
+          "dev_cost": 6364.18,
+          "dev_mean_rollouts": 8.34
+        },
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.8184999999999999,
+          "dev_cost": 7594.47,
+          "dev_mean_rollouts": 10.016000000000002
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.8184999999999999,
+          "dev_cost": 7336.638000000001,
+          "dev_mean_rollouts": 9.434000000000001
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.818,
+          "dev_cost": 7547.878000000001,
+          "dev_mean_rollouts": 9.734
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.8184999999999999,
+          "dev_cost": 7674.7609999999995,
+          "dev_mean_rollouts": 9.942
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.8195,
+          "dev_cost": 8131.5509999999995,
+          "dev_mean_rollouts": 10.682
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 7865.139499999999,
+          "dev_mean_rollouts": 10.278000000000002
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.8195,
+          "dev_cost": 8145.1425,
+          "dev_mean_rollouts": 10.674000000000001
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.8195,
+          "dev_cost": 8165.2185,
+          "dev_mean_rollouts": 10.722000000000001
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.8195,
+          "dev_cost": 8482.493,
+          "dev_mean_rollouts": 11.242
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 10075.296,
+          "dev_mean_rollouts": 13.806
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 10075.296,
+          "dev_mean_rollouts": 13.806
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 10075.296,
+          "dev_mean_rollouts": 13.806
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 10106.4275,
+          "dev_mean_rollouts": 13.854
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 11025.6285,
+          "dev_mean_rollouts": 15.55
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 11025.6285,
+          "dev_mean_rollouts": 15.55
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 11025.6285,
+          "dev_mean_rollouts": 15.55
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 11025.6285,
+          "dev_mean_rollouts": 15.55
+        },
+        {
+          "params": {
+            "always_32": true
+          },
+          "dev_accuracy": 0.82,
+          "dev_cost": 18322.4,
+          "dev_mean_rollouts": 32.0
+        }
+      ],
+      "eval_accuracy": 0.7180000000000001,
+      "eval_mean_token_cost": 8599.109375,
+      "stop_count_distribution": {
+        "4": 5728,
+        "8": 499,
+        "16": 168,
+        "32": 1605
+      },
+      "stop_count_fractions": {
+        "4": 0.716,
+        "8": 0.062375,
+        "16": 0.021,
+        "32": 0.200625
+      },
+      "incorrect_early_stops": 1082,
+      "recoverable_by_fixed32": 92,
+      "accuracy_minus_fixed32_bootstrap": {
+        "mean": -0.003374999999999998,
+        "ci95": [
+          -0.007874999999999998,
+          0.0011250000000000019
+        ]
+      },
+      "eval_mean_rollouts": 10.119000000000002
+    }
+  },
+  "mathvista": {
+    "fixed_n_self_consistency": {
+      "4": {
+        "accuracy": 0.5925,
+        "cost": 1111.717625
+      },
+      "8": {
+        "accuracy": 0.6140000000000001,
+        "cost": 2224.47675
+      },
+      "16": {
+        "accuracy": 0.629375,
+        "cost": 4446.81025
+      },
+      "32": {
+        "accuracy": 0.63975,
+        "cost": 8897.7575
+      }
+    },
+    "agreement_based": {
+      "frozen": {
+        "params": {
+          "tau": 0.625
+        },
+        "dev_accuracy": 0.6399999999999999,
+        "dev_cost": 5044.9619999999995,
+        "dev_mean_rollouts": 13.634,
+        "ref_fixed32_accuracy": 0.6385000000000001
+      },
+      "dev_grid": [
+        {
+          "params": {
+            "tau": 0.5
+          },
+          "dev_accuracy": 0.6214999999999999,
+          "dev_cost": 3114.2294999999995,
+          "dev_mean_rollouts": 8.34
+        },
+        {
+          "params": {
+            "tau": 0.625
+          },
+          "dev_accuracy": 0.6399999999999999,
+          "dev_cost": 5044.9619999999995,
+          "dev_mean_rollouts": 13.634
+        },
+        {
+          "params": {
+            "tau": 0.75
+          },
+          "dev_accuracy": 0.6409999999999999,
+          "dev_cost": 5503.408500000001,
+          "dev_mean_rollouts": 15.002
+        },
+        {
+          "params": {
+            "tau": 0.875
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7119.575,
+          "dev_mean_rollouts": 20.372
+        },
+        {
+          "params": {
+            "tau": 1.0
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7426.0925,
+          "dev_mean_rollouts": 21.948
+        },
+        {
+          "params": {
+            "always_32": true
+          },
+          "dev_accuracy": 0.6385000000000001,
+          "dev_cost": 9217.485,
+          "dev_mean_rollouts": 32.0
+        }
+      ],
+      "eval_accuracy": 0.639625,
+      "eval_mean_token_cost": 4490.826499999999,
+      "stop_count_distribution": {
+        "4": 4677,
+        "8": 690,
+        "16": 151,
+        "32": 2482
+      },
+      "stop_count_fractions": {
+        "4": 0.584625,
+        "8": 0.08625,
+        "16": 0.018875,
+        "32": 0.31025
+      },
+      "incorrect_early_stops": 1118,
+      "recoverable_by_fixed32": 130,
+      "accuracy_minus_fixed32_bootstrap": {
+        "mean": -0.00012499999999999816,
+        "ci95": [
+          -0.006749999999999998,
+          0.006750000000000002
+        ]
+      },
+      "eval_mean_rollouts": 13.2585
+    },
+    "quality_aware": {
+      "frozen": {
+        "params": {
+          "tau": 0.5,
+          "gamma": 0.0
+        },
+        "dev_accuracy": 0.63,
+        "dev_cost": 3534.0409999999997,
+        "dev_mean_rollouts": 9.682,
+        "ref_fixed32_accuracy": 0.6385000000000001
+      },
+      "dev_grid": [
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.63,
+          "dev_cost": 3534.0409999999997,
+          "dev_mean_rollouts": 9.682
+        },
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.6305,
+          "dev_cost": 3789.3390000000004,
+          "dev_mean_rollouts": 10.492
+        },
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.632,
+          "dev_cost": 4205.6185,
+          "dev_mean_rollouts": 11.645999999999999
+        },
+        {
+          "params": {
+            "tau": 0.5,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.637,
+          "dev_cost": 5375.1705,
+          "dev_mean_rollouts": 14.944
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.6399999999999999,
+          "dev_cost": 5087.0055,
+          "dev_mean_rollouts": 13.786000000000001
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.6409999999999999,
+          "dev_cost": 5222.175,
+          "dev_mean_rollouts": 14.296
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.6409999999999999,
+          "dev_cost": 5298.302999999999,
+          "dev_mean_rollouts": 14.548
+        },
+        {
+          "params": {
+            "tau": 0.625,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.6415,
+          "dev_cost": 5832.2575,
+          "dev_mean_rollouts": 16.274
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.6409999999999999,
+          "dev_cost": 5568.6365000000005,
+          "dev_mean_rollouts": 15.178000000000003
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.6425,
+          "dev_cost": 5736.573,
+          "dev_mean_rollouts": 15.764000000000001
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.6425,
+          "dev_cost": 5745.264499999999,
+          "dev_mean_rollouts": 15.828
+        },
+        {
+          "params": {
+            "tau": 0.75,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.6419999999999999,
+          "dev_cost": 6056.316999999999,
+          "dev_mean_rollouts": 16.95
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7119.575,
+          "dev_mean_rollouts": 20.372
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7119.575,
+          "dev_mean_rollouts": 20.372
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7119.575,
+          "dev_mean_rollouts": 20.372
+        },
+        {
+          "params": {
+            "tau": 0.875,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7123.2895,
+          "dev_mean_rollouts": 20.408
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.0
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7426.0925,
+          "dev_mean_rollouts": 21.948
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.1
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7426.0925,
+          "dev_mean_rollouts": 21.948
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.25
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7426.0925,
+          "dev_mean_rollouts": 21.948
+        },
+        {
+          "params": {
+            "tau": 1.0,
+            "gamma": 0.5
+          },
+          "dev_accuracy": 0.6395000000000001,
+          "dev_cost": 7426.0925,
+          "dev_mean_rollouts": 21.948
+        },
+        {
+          "params": {
+            "always_32": true
+          },
+          "dev_accuracy": 0.6385000000000001,
+          "dev_cost": 9217.485,
+          "dev_mean_rollouts": 32.0
+        }
+      ],
+      "eval_accuracy": 0.63475,
+      "eval_mean_token_cost": 3345.5536250000005,
+      "stop_count_distribution": {
+        "4": 5428,
+        "8": 818,
+        "16": 243,
+        "32": 1511
+      },
+      "stop_count_fractions": {
+        "4": 0.6785,
+        "8": 0.10225,
+        "16": 0.030375,
+        "32": 0.188875
+      },
+      "incorrect_early_stops": 1694,
+      "recoverable_by_fixed32": 263,
+      "accuracy_minus_fixed32_bootstrap": {
+        "mean": -0.004999999999999997,
+        "ci95": [
+          -0.014506249999999998,
+          0.005003125000000001
+        ]
+      },
+      "eval_mean_rollouts": 10.062000000000001
+    }
+  }
+}

@@ -1,0 +1,10 @@
+| controller | stop_n | fraction | count |
+| --- | --- | --- | --- |
+| agreement_based | 4 | 0.6690 | 5352 |
+| agreement_based | 8 | 0.0500 | 400 |
+| agreement_based | 16 | 0.0134 | 107 |
+| agreement_based | 32 | 0.2676 | 2141 |
+| quality_aware | 4 | 0.7160 | 5728 |
+| quality_aware | 8 | 0.0624 | 499 |
+| quality_aware | 16 | 0.0210 | 168 |
+| quality_aware | 32 | 0.2006 | 1605 |

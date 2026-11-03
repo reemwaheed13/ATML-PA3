@@ -1,0 +1,9 @@
+controller,stop_n,fraction,count
+agreement_based,4,0.584625,4677
+agreement_based,8,0.08625,690
+agreement_based,16,0.018875,151
+agreement_based,32,0.31025,2482
+quality_aware,4,0.6785,5428
+quality_aware,8,0.10225,818
+quality_aware,16,0.030375,243
+quality_aware,32,0.188875,1511

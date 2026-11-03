@@ -1,0 +1,195 @@
+{
+  "trajectories_rule": "first 3 MathVista eval questions in split permutation order whose 32-rollout pool contains both correct and incorrect rollouts; within each, the rollouts with the highest and lowest Z_i (VisConf calibrated over the full pool)",
+  "N": 32,
+  "math": {
+    "spearman_with_correctness": {
+      "length": {
+        "mean": -0.0757752672844279,
+        "count": 454
+      },
+      "L": {
+        "mean": 0.13731459659100975,
+        "count": 454
+      },
+      "K": {
+        "mean": 0.20178128083800353,
+        "count": 454
+      }
+    },
+    "spearman_with_length": {
+      "length": {
+        "mean": 1.0,
+        "count": 800
+      },
+      "L": {
+        "mean": 0.22450990220048075,
+        "count": 800
+      },
+      "K": {
+        "mean": -0.16109595817293734,
+        "count": 800
+      }
+    },
+    "quartile_gap": {
+      "length": {
+        "all": {
+          "mean": 0.04328125,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.07626651982378854,
+          "count": 454
+        }
+      },
+      "L": {
+        "all": {
+          "mean": 0.07734375,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.1362885462555066,
+          "count": 454
+        }
+      },
+      "K": {
+        "all": {
+          "mean": 0.11765625,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.2073237885462555,
+          "count": 454
+        }
+      }
+    }
+  },
+  "mathvista": {
+    "spearman_with_correctness": {
+      "length": {
+        "mean": -0.04382167979404469,
+        "count": 639
+      },
+      "L": {
+        "mean": 0.03423682717272213,
+        "count": 639
+      },
+      "K": {
+        "mean": 0.04953140848418459,
+        "count": 639
+      },
+      "V": {
+        "mean": 0.03684807873079405,
+        "count": 639
+      },
+      "Z": {
+        "mean": 0.08723934335324508,
+        "count": 639
+      },
+      "Ztok": {
+        "mean": 0.07908799634366295,
+        "count": 639
+      }
+    },
+    "spearman_with_length": {
+      "length": {
+        "mean": 1.0,
+        "count": 795
+      },
+      "L": {
+        "mean": 0.32898145589581074,
+        "count": 795
+      },
+      "K": {
+        "mean": 0.3493333584506632,
+        "count": 795
+      },
+      "V": {
+        "mean": -0.6857520445845515,
+        "count": 795
+      },
+      "Z": {
+        "mean": -0.2750367811900654,
+        "count": 795
+      },
+      "Ztok": {
+        "mean": -0.3218025706715196,
+        "count": 795
+      }
+    },
+    "quartile_gap": {
+      "length": {
+        "all": {
+          "mean": 0.03671875,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.04597026604068857,
+          "count": 639
+        }
+      },
+      "L": {
+        "all": {
+          "mean": 0.020625,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.025821596244131457,
+          "count": 639
+        }
+      },
+      "K": {
+        "all": {
+          "mean": 0.036875,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.04616588419405321,
+          "count": 639
+        }
+      },
+      "V": {
+        "all": {
+          "mean": 0.03546875,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.04440532081377152,
+          "count": 639
+        }
+      },
+      "Z": {
+        "all": {
+          "mean": 0.07296875,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.09135367762128326,
+          "count": 639
+        }
+      },
+      "Ztok": {
+        "all": {
+          "mean": 0.07125,
+          "count": 800
+        },
+        "mixed": {
+          "mean": 0.0892018779342723,
+          "count": 639
+        }
+      }
+    },
+    "token_c_v_pearson": {
+      "n_questions": 800,
+      "skipped_zero_variance_rollouts": 0,
+      "mean": -0.20934390585517282,
+      "median": -0.21048683184226724,
+      "iqr": 0.21163824128188075,
+      "fraction_negative": 0.8925
+    },
+    "covariance_check": {
+      "max_abs": 4.9439619065339e-17,
+      "mean_abs": 3.90321600925786e-18,
+      "n_rollouts": 25600
+    }
+  }
+}

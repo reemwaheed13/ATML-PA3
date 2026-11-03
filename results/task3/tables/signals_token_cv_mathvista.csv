@@ -1,0 +1,7 @@
+metric,value
+mean,-0.20934390585517282
+median,-0.21048683184226724
+iqr,0.21163824128188075
+fraction_negative,0.8925
+n_questions,800
+skipped_zero_variance_rollouts,0

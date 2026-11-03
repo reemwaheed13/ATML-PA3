@@ -1,0 +1,206 @@
+{
+  "selection_disagreement_rule": "SC vs the best quality-RWC rule at N=32, order 0",
+  "premature_stopping_rule": "quality_aware stopped early & wrong at order 0 while fixed-32 was correct",
+  "revision_rule": "all live sequential-refinement wrong->correct and correct->wrong",
+  "selection_disagreement": {
+    "math": [
+      {
+        "sample_id": "test:2892",
+        "rule_a": "self_consistency",
+        "rule_b": "self_certainty_rwc",
+        "sc_answer": "1",
+        "sc_correct": false,
+        "sc_group": 6,
+        "quality_answer": "0",
+        "quality_correct": false,
+        "quality_group": 3,
+        "group_sizes": {
+          "1": 1,
+          "2": 2,
+          "0": 1,
+          "3": 4,
+          "4": 1,
+          "5": 1,
+          "6": 4,
+          "7": 1,
+          "8": 1,
+          "9": 1,
+          "10": 1,
+          "11": 1,
+          "12": 1,
+          "13": 1,
+          "14": 1,
+          "15": 1,
+          "16": 1,
+          "17": 1,
+          "18": 1,
+          "19": 1,
+          "20": 1,
+          "21": 1,
+          "22": 1,
+          "23": 1,
+          "24": 1
+        }
+      },
+      {
+        "sample_id": "test:2948",
+        "rule_a": "self_consistency",
+        "rule_b": "self_certainty_rwc",
+        "sc_answer": "1",
+        "sc_correct": false,
+        "sc_group": 7,
+        "quality_answer": "2 + \\sqrt{3}, 2 - \\sqrt{3}, \\frac{3 + \\sqrt{13 + 4\\sqrt{3}}}{2}, \\frac{3 - \\sqrt{13 + 4\\sqrt{3}}}{2}, \\frac{3 + \\sqrt{13 - 4\\sqrt{3}}}{2}, \\frac{3 - \\sqrt{13 - 4\\sqrt{3}}}{2}",
+        "quality_correct": false,
+        "quality_group": 13,
+        "group_sizes": {
+          "1": 1,
+          "0": 2,
+          "2": 4,
+          "3": 2,
+          "4": 1,
+          "5": 1,
+          "6": 1,
+          "7": 5,
+          "8": 1,
+          "9": 1,
+          "10": 1,
+          "11": 1,
+          "12": 3,
+          "13": 3,
+          "14": 1,
+          "15": 1,
+          "16": 1,
+          "17": 1,
+          "18": 1
+        }
+      },
+      {
+        "sample_id": "test:4516",
+        "rule_a": "self_consistency",
+        "rule_b": "self_certainty_rwc",
+        "sc_answer": "\\frac{17\\sqrt{10}}{2}",
+        "sc_correct": false,
+        "sc_group": 1,
+        "quality_answer": "4\\sqrt{10}",
+        "quality_correct": false,
+        "quality_group": 2,
+        "group_sizes": {
+          "1": 15,
+          "0": 2,
+          "2": 9,
+          "3": 1,
+          "4": 1,
+          "5": 1,
+          "6": 1,
+          "7": 1,
+          "8": 1
+        }
+      }
+    ],
+    "mathvista": [
+      {
+        "sample_id": "552",
+        "rule_a": "self_consistency",
+        "rule_b": "visconf_rwc",
+        "sc_answer": "4",
+        "sc_correct": true,
+        "sc_group": 3,
+        "quality_answer": "2",
+        "quality_correct": false,
+        "quality_group": 2,
+        "group_sizes": {
+          "1": 9,
+          "2": 9,
+          "3": 14
+        }
+      },
+      {
+        "sample_id": "643",
+        "rule_a": "self_consistency",
+        "rule_b": "visconf_rwc",
+        "sc_answer": "C",
+        "sc_correct": false,
+        "sc_group": 2,
+        "quality_answer": "A",
+        "quality_correct": true,
+        "quality_group": 3,
+        "group_sizes": {
+          "0": 8,
+          "1": 3,
+          "2": 11,
+          "3": 10
+        }
+      },
+      {
+        "sample_id": "313",
+        "rule_a": "self_consistency",
+        "rule_b": "visconf_rwc",
+        "sc_answer": "10-15 years",
+        "sc_correct": false,
+        "sc_group": 2,
+        "quality_answer": "20",
+        "quality_correct": false,
+        "quality_group": 1,
+        "group_sizes": {
+          "1": 4,
+          "2": 6,
+          "3": 3,
+          "4": 1,
+          "5": 1,
+          "6": 5,
+          "7": 5,
+          "8": 3,
+          "9": 2,
+          "10": 1,
+          "11": 1
+        }
+      }
+    ]
+  },
+  "premature_stopping": {
+    "math": [
+      {
+        "sample_id": "test:61",
+        "stop_n": 4,
+        "answer": "x^{7/6}",
+        "full_pool_correct_fraction": 0.34375
+      },
+      {
+        "sample_id": "test:572",
+        "stop_n": 4,
+        "answer": "2.25",
+        "full_pool_correct_fraction": 0.46875
+      },
+      {
+        "sample_id": "test:1153",
+        "stop_n": 4,
+        "answer": "9",
+        "full_pool_correct_fraction": 0.25
+      }
+    ],
+    "mathvista": [
+      {
+        "sample_id": "358",
+        "stop_n": 4,
+        "answer": "D",
+        "full_pool_correct_fraction": 0.4375
+      },
+      {
+        "sample_id": "542",
+        "stop_n": 4,
+        "answer": "3",
+        "full_pool_correct_fraction": 0.375
+      },
+      {
+        "sample_id": "842",
+        "stop_n": 16,
+        "answer": "B",
+        "full_pool_correct_fraction": 0.375
+      }
+    ]
+  },
+  "revision": {
+    "wrong_to_correct": [],
+    "correct_to_wrong": []
+  }
+}
