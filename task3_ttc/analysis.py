@@ -66,6 +66,13 @@ def _fmt(x) -> str:
     return str(x)
 
 
+def _pearson(x, y) -> float:
+    x = np.asarray(x, dtype=float); y = np.asarray(y, dtype=float)
+    if x.size < 2 or x.std() == 0 or y.std() == 0:
+        return float("nan")
+    return float(np.corrcoef(x, y)[0, 1])
+
+
 def _rules_of(ds: dict) -> list[str]:
     skip = {"n_eval_questions", "budgets", "_accuracy_diffs"}
     return [k for k in ds if k not in skip]
@@ -171,6 +178,74 @@ def _figures(offline: dict, adaptive: Optional[dict]) -> None:
         ax.set_title(f"{dataset}: distinct answer groups"); ax.legend(fontsize=7)
         fig.tight_layout(); fig.savefig(os.fspath(FIG / f"distinct_groups_{dataset}.png"), dpi=130)
         plt.close(fig)
+
+
+_TRAJ_FIELDS = {"correct", "answer", "Z", "Z_token", "V", "C", "length"}
+
+
+def _roll(y) -> np.ndarray:
+    """Centered rolling mean, window 16, min_periods=1 (pandas semantics)."""
+    import pandas as pd
+    return pd.Series(np.asarray(y, dtype=float)).rolling(
+        window=16, center=True, min_periods=1).mean().to_numpy()
+
+
+def _trajectory_figure(cases: list) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cases = cases[:3]
+    fig, axes = plt.subplots(len(cases), 2, figsize=(12, 3.2 * len(cases)), squeeze=False)
+    for row, case in enumerate(cases):
+        for col, key in enumerate(("highest_Z", "lowest_Z")):
+            e = case[key]
+            ax = axes[row][col]
+            c = np.asarray(e["c"], dtype=float); v = np.asarray(e["v"], dtype=float)
+            x = np.arange(c.size)
+            ax.plot(x, c, color="tab:blue", alpha=0.15, linewidth=0.8)
+            ax.plot(x, _roll(c), color="tab:blue", linewidth=1.8)
+            ax.set_ylim(0.0, 1.0)
+            ax.set_xlabel("generated-token position")
+            ax.set_ylabel(r"calibrated confidence $c_t$", color="tab:blue")
+            ax.tick_params(axis="y", labelcolor="tab:blue")
+            ax2 = ax.twinx()
+            ax2.plot(x, v, color="tab:red", alpha=0.15, linewidth=0.8)
+            ax2.plot(x, _roll(v), color="tab:red", linewidth=1.8)
+            ax2.set_ylabel(r"visual engagement $v_t$", color="tab:red")
+            ax2.tick_params(axis="y", labelcolor="tab:red")
+            ans = str(e.get("answer", ""))[:20]
+            ok = "T" if bool(e["correct"]) else "F"
+            ax.set_title(f"{case['sample_id']} r{e['rollout_id']} | correct={ok} | ans={ans} | "
+                         f"Z={e['Z']:.3f} | T={e['length']}", fontsize=8)
+    fig.suptitle("Calibrated confidence and visual engagement over generation (rolling mean, w=16); "
+                 "rows: first 3 mixed-correctness MathVista eval questions", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(os.fspath(FIG / "trajectories_mathvista.png"), dpi=130)
+    plt.close(fig)
+
+
+def _trajectory_table(cases: list) -> None:
+    rows = []
+    for case in cases[:3]:
+        for key, label in (("highest_Z", "highest-Z"), ("lowest_Z", "lowest-Z")):
+            e = case[key]
+            rows.append([case["sample_id"], label, int(e["rollout_id"]),
+                         _pearson(e["c"], e["v"]), e["C"], e["V"], e["Z"], e["Z_token"],
+                         bool(e["correct"])])
+    _write_table("trajectories_mathvista",
+                 ["sample_id", "rollout", "rollout_id", "pearson_c_v", "C", "V", "Z", "Z_token",
+                  "correct"], rows)
+
+
+def _trajectory_outputs(traj: dict) -> None:
+    cases = traj.get("cases", [])
+    if not cases or not _TRAJ_FIELDS.issubset(cases[0].get("highest_Z", {})):
+        print("[task3.analysis] trajectories.json lacks the new per-rollout fields; "
+              "skipping trajectory figure/table.")
+        return
+    _trajectory_figure(cases)
+    _trajectory_table(cases)
 
 
 # =================================================================================================
@@ -441,12 +516,15 @@ def run() -> None:
     adaptive = _load_json(RES / "adaptive.json")
     signals = _load_json(RES / "signals.json")
     live = _load_json(RES / "live" / "live_summary.json")
+    traj = _load_json(RES / "trajectories.json")
 
     if offline:
         _figures(offline, adaptive)
         _method_tables(offline)
     if signals:
         _signal_tables(signals)
+    if traj:
+        _trajectory_outputs(traj)
     if live:
         _live_table(live)
     if adaptive:

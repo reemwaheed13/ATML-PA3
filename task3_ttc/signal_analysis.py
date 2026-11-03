@@ -11,8 +11,9 @@ Writes results/task3/signals.json:
     rollouts, counted), averaged within a question then summarized across questions (mean, median,
     IQR, fraction negative);
   * covariance check |(Z_token - Z) - Cov_t(c,v)| (population) over all rollouts (max, mean);
-and results/task3/trajectories.json (per-token k/c/v/logp for the highest- and lowest-Z rollouts of
-the first three mixed-correctness MathVista eval questions in permutation order).
+and results/task3/trajectories.json (per-token k/c/v/logp plus per-rollout
+correct/answer/Z/Z_token/V/C/length for the highest- and lowest-Z rollouts of the first three
+mixed-correctness MathVista eval questions in permutation order).
 """
 
 from __future__ import annotations
@@ -161,9 +162,16 @@ def run(cfg: dict[str, Any]) -> None:
                 if mixed and traj_found < 3:
                     Z = extra["Z"]
                     hi, lo = int(np.argmax(Z)), int(np.argmin(Z))
+                    ans_by_rid = {int(r["rollout_id"]): r.get("extracted") for r in q.rollouts}
+                    g_ids = [int(x) for x in gmap[sid]["rollout_ids"]]
+                    g_grp = [int(x) for x in gmap[sid]["groups"]]
+                    reps = t3data.group_representatives([ans_by_rid.get(r) for r in g_ids], g_grp)
+                    grp_by_rid = {r: g for r, g in zip(g_ids, g_grp)}
+                    ctx = (scores, correct, length, reps, grp_by_rid)
                     traj["cases"].append({
                         "dataset": dataset, "sample_id": sid,
-                        "highest_Z": _traj_entry(extra, hi), "lowest_Z": _traj_entry(extra, lo)})
+                        "highest_Z": _traj_entry(extra, hi, *ctx),
+                        "lowest_Z": _traj_entry(extra, lo, *ctx)})
                     traj_found += 1
 
         ds: dict[str, Any] = {
@@ -196,10 +204,21 @@ def run(cfg: dict[str, Any]) -> None:
           f"({len(traj['cases'])} trajectory cases).")
 
 
-def _traj_entry(extra: dict, i: int) -> dict:
-    return {"rollout_id": int(extra["rid"][i]),
+def _traj_entry(extra: dict, i: int, scores: dict, correct, length,
+                reps: dict, grp_by_rid: dict) -> dict:
+    rid = int(extra["rid"][i])
+    gid = int(grp_by_rid.get(rid, 0))
+    c = extra["c"][i]
+    return {"rollout_id": rid,
+            "correct": bool(correct[i]),
+            "answer": str(reps.get(gid, t3data.NO_ANSWER)),
+            "Z": float(scores["Z"][i]),
+            "Z_token": float(scores["Ztok"][i]),
+            "V": float(scores["V"][i]),
+            "C": float(c.mean()) if c.size else 0.0,
+            "length": int(length[i]),
             "k": extra["kl"][i].astype(float).tolist(),
-            "c": extra["c"][i].astype(float).tolist(),
+            "c": c.astype(float).tolist(),
             "v": extra["v"][i].astype(float).tolist(),
             "logp": extra["logp"][i].astype(float).tolist()}
 
