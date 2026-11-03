@@ -1,20 +1,19 @@
 """Adaptive sampling with dev-selected thresholds. (handout p13-p14, Step 5)
 
-Simulated on the supplied pools: reveal rollouts in the saved random orders, check stopping after
-n in {4,8,16} candidates (else stop at 32). Both controllers return the CURRENT self-consistency
-answer, isolating stopping from final selection. Scores/calibration/ranks are recomputed using
-only revealed candidates.
+Simulated on the supplied pools using the SAME per-question orders and VisConf cache as the offline
+step (offline.build_question_arrays / load_or_make_orders / load_or_build_visconf). Reveal rollouts
+in the saved order; check stopping after n in {4,8,16} candidates, else stop at 32. Both controllers
+return the CURRENT self-consistency answer, isolating stopping from final selection.
 
 Controllers:
-  * agreement_based: stop if a unique, non-NO_ANSWER leading answer is supported by >= fraction
-    tau of the n candidates.
-  * quality_aware: same agreement condition PLUS agreement between the self-consistency and RWC
-    winners, and an RWC vote margin >= gamma. Quality signal = self-certainty (MATH) / VisConf
-    (MathVista).
+  * agreement_based: count ALL groups (including NO_ANSWER). Stop only if the top count is held by
+    exactly one group, that group is not NO_ANSWER, and count/n >= tau.
+  * quality_aware: the same agreement condition PLUS the self-consistency and RWC winners agree and
+    the RWC vote margin >= gamma. Quality signal = self-certainty K (MATH) / VisConf Z (MathVista).
 
-Threshold selection (on each dataset's dev set): pick the setting with the lowest mean token cost
-whose dev accuracy is <= 1pp below fixed-32 self-consistency (averaged over 10 orders). Break ties
-by higher accuracy, then smaller tau/gamma. Freeze before held-out evaluation.
+Thresholds are selected on each dataset's dev set: lowest mean token cost among settings whose dev
+accuracy is >= fixed-32 self-consistency minus the tolerance (with a 1e-12 slack). Ties: higher
+accuracy, then smaller tau, then smaller gamma. Frozen before held-out evaluation.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ from common.config import build_arg_parser, load_yaml
 from common.paths import REPO_ROOT, ensure_dir
 from . import data as t3data
 from . import signals
-from .offline import _question_stats, _vote, generate_orders
+from .offline import (_sc_winner, build_question_arrays, load_or_build_visconf, load_or_make_orders)
 from .splits import make_splits
 
 _ALWAYS_32 = {"always_32": True}
@@ -41,65 +40,53 @@ _ALWAYS_32 = {"always_32": True}
 # Stopping controllers
 # =================================================================================================
 
-def _leading_nonzero(groups: list[int]) -> tuple[Optional[int], int, bool]:
-    """Return (unique leading non-NO_ANSWER group or None, its count, is-unique)."""
-    counts = Counter(g for g in groups if g != 0)
-    if not counts:
-        return None, 0, False
-    top = max(counts.values())
-    leaders = [g for g, c in counts.items() if c == top]
-    return (leaders[0] if len(leaders) == 1 else None), top, len(leaders) == 1
-
-
-def agreement_stop(groups: list[int], tau: float) -> bool:
-    """True if a unique non-NO_ANSWER leading answer has support fraction >= tau of the prefix."""
-    g, cnt, _ = _leading_nonzero(groups)
-    if g is None:
+def _agreement_stop(groups: np.ndarray, tau: float) -> bool:
+    """Stop iff a unique top group (counting NO_ANSWER) is not NO_ANSWER and has support >= tau."""
+    counts = np.bincount(groups)
+    best = int(counts.max())
+    leaders = np.flatnonzero(counts == best)
+    if leaders.size != 1:
         return False
-    return (cnt / len(groups)) >= tau
+    g = int(leaders[0])
+    if g == 0:                                              # NO_ANSWER leads -> never stop
+        return False
+    return (best / len(groups)) >= tau
 
 
-def quality_aware_stop(groups: list[int], scores: list[float], tau: float, gamma: float) -> bool:
+def _quality_stop(groups: np.ndarray, scores: list, tau: float, gamma: float) -> bool:
     """agreement_stop AND self-consistency==RWC winner AND RWC margin >= gamma."""
-    if not agreement_stop(groups, tau):
+    if not _agreement_stop(groups, tau):
         return False
-    if _vote(groups) != signals.rwc_winner(groups, scores):
+    if _sc_winner(groups) != int(signals.rwc_winner(groups.tolist(), scores)):
         return False
-    return signals.rwc_margin(groups, scores) >= gamma
+    return signals.rwc_margin(groups.tolist(), scores) >= gamma
 
 
-def _quality_scores(qs: dict[str, Any], prefix: list[int], has_vision: bool) -> list[float]:
-    if has_vision:
-        return signals.visconf([qs["rollouts"][i] for i in prefix])
-    return [qs["K"][i] for i in prefix]
-
-
-def simulate(qs: dict[str, Any], controller: str, params: dict, order: list[int],
-             *, checkpoints=(4, 8, 16), max_candidates: int = 32, has_vision: bool = False):
-    """Reveal candidates in `order`, apply the stopping check at each checkpoint, else stop at 32.
-
-    Returns the returned self-consistency answer, token cost, revealed-rollout count, correctness.
-    """
-    idx_all = [int(i) for i in order][:max_candidates]
+def simulate(e: dict, pos_order: np.ndarray, controller: str, params: dict, *, checkpoints,
+             max_candidates: int, has_vision: bool, zdict=None) -> dict[str, Any]:
+    """Reveal candidates in order; apply the stop check at each checkpoint, else stop at 32."""
+    idx_all = pos_order[:max_candidates]
     stop_n = max_candidates
     if not params.get("always_32"):
         for n in checkpoints:
-            prefix = idx_all[:n]
-            groups = [qs["groups"][i] for i in prefix]
+            pos = idx_all[:n]
+            groups = e["group"][pos]
             if controller == "agreement_based":
-                stop = agreement_stop(groups, params["tau"])
+                stop = _agreement_stop(groups, params["tau"])
             else:
-                stop = quality_aware_stop(groups, _quality_scores(qs, prefix, has_vision),
-                                          params["tau"], params["gamma"])
+                scores = list(zdict[n]) if has_vision else e["K"][pos].tolist()
+                stop = _quality_stop(groups, scores, params["tau"], params["gamma"])
             if stop:
                 stop_n = n
                 break
-
-    prefix = idx_all[:stop_n]
-    answer = _vote([qs["groups"][i] for i in prefix])
-    cost = sum(qs["length"][i] for i in prefix)
-    return {"answer": answer, "cost": int(cost), "rollouts": stop_n,
-            "correct": bool(qs["group_correct"].get(answer, False))}
+    pos = idx_all[:stop_n]
+    groups = e["group"][pos]
+    winner = _sc_winner(groups)
+    counts = np.bincount(groups)
+    return {"stop_n": int(stop_n), "group": int(winner),
+            "correct": bool(e["group_correct"].get(winner, False)),
+            "cost": int(e["length"][pos].sum()),
+            "leading_frac": float(counts[winner] / len(groups))}
 
 
 # =================================================================================================
@@ -118,36 +105,42 @@ def _grid(controller: str, cfg: dict[str, Any]) -> list[dict]:
     return grid
 
 
-def _run_params(stats, ids, controller, params, orders, cfg, has_vision):
-    """Mean accuracy / token cost / rollouts over dev|eval questions x orders for one param set."""
+def _run_params(qa, posfull, ids, controller, params, n_orders, cfg, has_vision, vz):
+    """Mean accuracy / cost / rollouts over ids x orders for one param set; also per-q acc + stops."""
     cps = tuple(cfg.get("check_points", [4, 8, 16]))
     mc = int(cfg.get("max_candidates", 32))
-    accs, costs, rolls, stops = [], [], [], []
+    accs, costs, rolls = [], [], []
+    stops: list[tuple[int, bool]] = []
     for sid in ids:
+        e = qa[sid]
         a = c = r = 0.0
-        for order in orders:
-            out = simulate(stats[sid], controller, params, order, checkpoints=cps,
-                           max_candidates=mc, has_vision=has_vision)
-            a += out["correct"]; c += out["cost"]; r += out["rollouts"]
-            stops.append((out["rollouts"], out["correct"]))
-        k = len(orders)
-        accs.append(a / k); costs.append(c / k); rolls.append(r / k)
+        for o in range(n_orders):
+            zdict = {n: vz[sid]["Z"][(o, n)] for n in cps} if has_vision else None
+            out = simulate(e, posfull[sid][o], controller, params, checkpoints=cps,
+                           max_candidates=mc, has_vision=has_vision, zdict=zdict)
+            a += out["correct"]; c += out["cost"]; r += out["stop_n"]
+            stops.append((out["stop_n"], out["correct"]))
+        accs.append(a / n_orders); costs.append(c / n_orders); rolls.append(r / n_orders)
     return {"accuracy": float(np.mean(accs)), "cost": float(np.mean(costs)),
-            "rollouts": float(np.mean(rolls)), "per_q_acc": accs, "stops": stops}
+            "rollouts": float(np.mean(rolls)), "per_q_acc": np.array(accs), "stops": stops}
 
 
-def select_thresholds(stats, dev_ids, controller, orders, cfg, has_vision) -> dict[str, Any]:
-    """Pick per-controller thresholds on dev by the lowest-cost-within-tolerance rule. (p14)"""
+def select_thresholds(qa, posfull, dev_ids, controller, n_orders, cfg, has_vision, vz):
+    """Pick per-controller thresholds on dev; return frozen choice + the full dev grid."""
     tol = float(cfg["selection"]["dev_accuracy_tolerance_pp"]) / 100.0
-    baseline = _run_params(stats, dev_ids, controller, dict(_ALWAYS_32), orders, cfg, has_vision)
-    ref_acc = baseline["accuracy"]
+    ref = _run_params(qa, posfull, dev_ids, controller, dict(_ALWAYS_32), n_orders, cfg,
+                      has_vision, vz)
+    ref_acc = ref["accuracy"]
 
+    grid_rows = []
     scored = []
     for params in _grid(controller, cfg):
-        res = _run_params(stats, dev_ids, controller, params, orders, cfg, has_vision)
+        res = _run_params(qa, posfull, dev_ids, controller, params, n_orders, cfg, has_vision, vz)
         scored.append((params, res))
+        grid_rows.append({"params": params, "dev_accuracy": res["accuracy"],
+                          "dev_cost": res["cost"], "dev_mean_rollouts": res["rollouts"]})
 
-    eligible = [(p, r) for p, r in scored if r["accuracy"] >= ref_acc - tol]
+    eligible = [(p, r) for p, r in scored if r["accuracy"] >= ref_acc - tol - 1e-12]
     if not eligible:
         eligible = [(p, r) for p, r in scored if p.get("always_32")]
 
@@ -156,8 +149,72 @@ def select_thresholds(stats, dev_ids, controller, orders, cfg, has_vision) -> di
         return (r["cost"], -r["accuracy"], p.get("tau", 1.0), p.get("gamma", 1.0))
 
     best_params, best_res = min(eligible, key=key)
-    return {"params": best_params, "dev_accuracy": best_res["accuracy"],
-            "dev_cost": best_res["cost"], "ref_fixed32_accuracy": ref_acc}
+    return ({"params": best_params, "dev_accuracy": best_res["accuracy"],
+             "dev_cost": best_res["cost"], "dev_mean_rollouts": best_res["rollouts"],
+             "ref_fixed32_accuracy": ref_acc}, grid_rows)
+
+
+# =================================================================================================
+# Held-out evaluation + per-question records
+# =================================================================================================
+
+def _fixed_n_sc(qa, posfull, ids, n_orders, Ns):
+    """Fixed-budget self-consistency accuracy + cost on eval, same orders."""
+    out = {}
+    for N in Ns:
+        accs, costs = [], []
+        for sid in ids:
+            e = qa[sid]
+            a = c = 0.0
+            for o in range(n_orders):
+                pos = posfull[sid][o][:N]
+                w = _sc_winner(e["group"][pos])
+                a += bool(e["group_correct"].get(w, False)); c += int(e["length"][pos].sum())
+            accs.append(a / n_orders); costs.append(c / n_orders)
+        out[int(N)] = {"accuracy": float(np.mean(accs)), "cost": float(np.mean(costs)),
+                       "per_q_acc": np.array(accs)}
+    return out
+
+
+def _eval_controller(qa, posfull, eval_ids, controller, params, n_orders, cfg, has_vision, vz,
+                     dataset, rows):
+    """Run the frozen controller on eval; collect per-question rows + stop/recoverable stats."""
+    cps = tuple(cfg.get("check_points", [4, 8, 16]))
+    mc = int(cfg.get("max_candidates", 32))
+    per_q_acc = []
+    stop_counter: Counter = Counter()
+    incorrect_early = recoverable = 0
+    total = 0
+    for sid in eval_ids:
+        e = qa[sid]
+        full_frac = float(e["correct"].mean())
+        a = 0.0
+        for o in range(n_orders):
+            zdict = {n: vz[sid]["Z"][(o, n)] for n in cps} if has_vision else None
+            out = simulate(e, posfull[sid][o], controller, params, checkpoints=cps,
+                           max_candidates=mc, has_vision=has_vision, zdict=zdict)
+            fixed32 = _sc_winner(e["group"][posfull[sid][o][:mc]])
+            fixed32_correct = bool(e["group_correct"].get(fixed32, False))
+            a += out["correct"]; total += 1
+            stop_counter[out["stop_n"]] += 1
+            if out["stop_n"] < mc and not out["correct"]:
+                incorrect_early += 1
+                if fixed32_correct:
+                    recoverable += 1
+            rows["dataset"].append(dataset); rows["controller"].append(controller)
+            rows["sample_id"].append(sid); rows["order_idx"].append(o)
+            rows["stop_n"].append(out["stop_n"])
+            rows["answer"].append(e["group_rep"].get(out["group"], t3data.NO_ANSWER))
+            rows["correct"].append(out["correct"]); rows["cost"].append(out["cost"])
+            rows["leading_support_fraction_at_stop"].append(out["leading_frac"])
+            rows["fixed32_correct"].append(fixed32_correct)
+            rows["full_pool_correct_fraction"].append(full_frac)
+        per_q_acc.append(a / n_orders)
+    stop_dist = {str(k): stop_counter[k] for k in sorted(stop_counter)}
+    stop_frac = {str(k): stop_counter[k] / total for k in sorted(stop_counter)} if total else {}
+    return {"per_q_acc": np.array(per_q_acc), "stop_count_distribution": stop_dist,
+            "stop_count_fractions": stop_frac, "incorrect_early_stops": incorrect_early,
+            "recoverable_by_fixed32": recoverable}
 
 
 # =================================================================================================
@@ -165,51 +222,81 @@ def select_thresholds(stats, dev_ids, controller, orders, cfg, has_vision) -> di
 # =================================================================================================
 
 def run(cfg: dict[str, Any]) -> None:
-    """Select thresholds on dev, freeze, evaluate on held-out; save accuracy/cost/stop distributions."""
+    """Select thresholds on dev, freeze, evaluate on held-out; write adaptive.json + per-question."""
     offline_cfg = load_yaml(cfg.get("offline_config", "configs/task3/offline.yaml"))
     seed = int(offline_cfg["splits"]["seed"])
     dev_size = int(offline_cfg["splits"]["dev_size"])
     n_orders = int(offline_cfg["offline"]["n_orders"])
-    order_seed = int(offline_cfg["offline"]["order_seed"])
+    order_seed = int(offline_cfg["offline"].get("order_seed", 6304))
+    budgets = [int(b) for b in offline_cfg["offline"]["budgets"]]
+    resamples = int(offline_cfg["report"]["bootstrap_resamples"])
+    mc = int(cfg.get("max_candidates", 32))
 
     results: dict[str, Any] = {}
+    rows = {k: [] for k in ("dataset", "controller", "sample_id", "order_idx", "stop_n", "answer",
+                            "correct", "cost", "leading_support_fraction_at_stop", "fixed32_correct",
+                            "full_pool_correct_fraction")}
+
     for spec in offline_cfg["data"]["models"]:
-        dataset = spec["dataset"]
+        dataset = str(spec["dataset"])
         has_vision = spec.get("type") == "vlm"
-        questions = t3data.load_joined(offline_cfg, spec)
-        qmap = {q.sample_id: q for q in questions}
-        split = make_splits(list(qmap), seed=seed, dev_size=dev_size)
-        n_roll = max(len(q.rollouts) for q in questions)
-        orders = generate_orders(n_roll, n_orders, seed=order_seed)
-        stats = {sid: _question_stats(qmap[sid], has_vision=has_vision)
-                 for sid in split["dev"] + split["eval"]}
+        qa, _ = build_question_arrays(offline_cfg, spec)
+        split = make_splits(list(qa), seed=seed, dev_size=dev_size)
+        dev_ids, eval_ids = split["dev"], split["eval"]
+        orders = load_or_make_orders(dataset, qa, n_orders=n_orders, seed=order_seed)
+        vz = load_or_build_visconf(offline_cfg, spec, qa, orders, budgets) if has_vision else None
+        posfull = {sid: [np.array([{int(x): i for i, x in enumerate(qa[sid]["rollout_id"])}[int(r)]
+                                   for r in orders[sid][o]], dtype=np.int64)
+                         for o in range(n_orders)] for sid in (dev_ids + eval_ids)}
 
         ds_res: dict[str, Any] = {}
-        fixed32 = _run_params(stats, split["eval"], "agreement_based", dict(_ALWAYS_32),
-                              orders, cfg, has_vision)
-        ds_res["fixed_32_self_consistency"] = {"accuracy": fixed32["accuracy"],
-                                               "cost": fixed32["cost"]}
+        fixed = _fixed_n_sc(qa, posfull, eval_ids, n_orders, [4, 8, 16, 32])
+        ds_res["fixed_n_self_consistency"] = {
+            str(N): {"accuracy": fixed[N]["accuracy"], "cost": fixed[N]["cost"]} for N in fixed}
+        fixed32_pq = fixed[32]["per_q_acc"]
+        idx = np.random.default_rng(order_seed).integers(0, len(eval_ids), size=(resamples,
+                                                                                len(eval_ids)))
 
         for controller in ("agreement_based", "quality_aware"):
-            frozen = select_thresholds(stats, split["dev"], controller, orders, cfg, has_vision)
-            held = _run_params(stats, split["eval"], controller, frozen["params"], orders, cfg,
-                               has_vision)
-            stop_dist = Counter(n for n, _ in held["stops"])
-            incorrect_early = sum(1 for n, ok in held["stops"] if n < 32 and not ok)
+            frozen, grid_rows = select_thresholds(qa, posfull, dev_ids, controller, n_orders, cfg,
+                                                  has_vision, vz)
+            held = _eval_controller(qa, posfull, eval_ids, controller, frozen["params"], n_orders,
+                                    cfg, has_vision, vz, dataset, rows)
+            d = held["per_q_acc"] - fixed32_pq
+            boot = {"mean": float(d.mean()),
+                    "ci95": [float(np.percentile(d[idx].mean(axis=1), 2.5)),
+                             float(np.percentile(d[idx].mean(axis=1), 97.5))]}
             ds_res[controller] = {
                 "frozen": frozen,
-                "eval_accuracy": held["accuracy"],
-                "eval_mean_token_cost": held["cost"],
-                "eval_mean_rollouts": held["rollouts"],
-                "stop_count_distribution": {str(k): int(v) for k, v in sorted(stop_dist.items())},
-                "incorrect_early_stops": int(incorrect_early),
+                "dev_grid": grid_rows,
+                "eval_accuracy": float(held["per_q_acc"].mean()),
+                "eval_mean_token_cost": None,
+                "stop_count_distribution": held["stop_count_distribution"],
+                "stop_count_fractions": held["stop_count_fractions"],
+                "incorrect_early_stops": held["incorrect_early_stops"],
+                "recoverable_by_fixed32": held["recoverable_by_fixed32"],
+                "accuracy_minus_fixed32_bootstrap": boot,
             }
+        # mean token cost / rollouts for the frozen controllers on eval (recompute cheaply)
+        for controller in ("agreement_based", "quality_aware"):
+            res = _run_params(qa, posfull, eval_ids, controller,
+                              ds_res[controller]["frozen"]["params"], n_orders, cfg, has_vision, vz)
+            ds_res[controller]["eval_mean_token_cost"] = res["cost"]
+            ds_res[controller]["eval_mean_rollouts"] = res["rollouts"]
         results[dataset] = ds_res
 
     out_dir = ensure_dir(REPO_ROOT / "results" / "task3")
     with open(os.fspath(out_dir / "adaptive.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
-    print(f"[task3.adaptive] wrote {out_dir / 'adaptive.json'} ({', '.join(results)}).")
+    _write_rows(out_dir, rows)
+    print(f"[task3.adaptive] wrote {out_dir/'adaptive.json'} and adaptive_per_question.parquet "
+          f"({len(rows['dataset'])} rows; {', '.join(results)}).")
+
+
+def _write_rows(out_dir, rows: dict[str, list]) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    pq.write_table(pa.table(rows), os.fspath(out_dir / "adaptive_per_question.parquet"))
 
 
 def main() -> None:

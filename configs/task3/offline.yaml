@@ -72,8 +72,13 @@ correctness:
 
 offline:
   budgets: [1, 2, 4, 8, 16, 32]   # candidate budgets N (p12)
-  n_orders: 10                    # ten seeded permutations of 32 rollout IDs, nested prefixes
-  order_seed: 6304                # derive the ten orders deterministically (TA-question #4)
+  n_orders: 10                    # ten seeded permutations PER QUESTION, nested prefixes
+  order_seed: 6304                # base seed for the per-question orders (TA-question #4)
+  # Per-question order derivation (frozen in splits/task3/<dataset>_orders.json, reused by adaptive):
+  #   rng = numpy.random.default_rng(numpy.random.SeedSequence([order_seed, q_index, k]))  k=0..9
+  #   q_index = the question's position in the lexicographically sorted ID list; the permutation
+  #   acts on the POSITIONS of the rollout-id-sorted rollouts and is stored as actual rollout_ids.
+  order_seed_rule: "SeedSequence([order_seed, q_index, k]); q_index = lexicographic rank of sample_id"
   average: [orders, questions]    # average over orders within question, then across questions
   tie_break: earliest_supporting_rollout   # for score/vote ties in current order
   rwc_tie: average_ranks          # average ranks for tied RWC scores
@@ -89,11 +94,13 @@ signals:
   eps: 1.0e-8
 
 comparisons:
-  # Both datasets: FirstAns, self-consistency (1 vote/rollout), highest mean log-prob,
-  # highest self-certainty, self-certainty + RWC.
-  both: [first_ans, self_consistency, highest_logprob, highest_self_certainty, self_certainty_rwc]
-  # MathVista additionally: vision-only and VisConf, each with highest-score and RWC.
-  mathvista_extra: [vision_only_highest, vision_only_rwc, visconf_highest, visconf_rwc]
+  # Both datasets: FirstAns, self-consistency (1 vote/rollout), shortest (length-only control),
+  # highest mean log-prob, highest self-certainty, self-certainty + RWC.
+  both: [first_ans, self_consistency, shortest, highest_logprob, highest_self_certainty, self_certainty_rwc]
+  # MathVista additionally: vision-only and VisConf (Z), each highest-score and RWC, plus the
+  # tokenwise fusion ablation VisConf-token (Z_token), highest-score and RWC.
+  mathvista_extra: [vision_only_highest, vision_only_rwc, visconf_highest, visconf_rwc,
+                    visconf_token_highest, visconf_token_rwc]
 
 report:
   # Accuracy, oracle coverage, generated-token cost (sum of retained token counts); FirstAns

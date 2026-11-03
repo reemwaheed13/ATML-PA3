@@ -171,11 +171,22 @@ python -m task2_vlm.analysis --config configs/task2/vlm_stages.yaml  # Required 
 ```
 
 ### Task 3 — Test-time compute
+Run in this order (CPU except `live`); each step reads the artifacts the previous ones wrote:
 ```bash
-python -m task3_ttc.offline  --config configs/task3/offline.yaml   # CPU; run anytime
-python -m task3_ttc.adaptive --config configs/task3/adaptive.yaml  # CPU
-python -m task3_ttc.live     --config configs/task3/live.yaml      # GPU: 50 MATH questions
+python -m task3_ttc.prepare         --config configs/task3/offline.yaml  # splits, per-question orders, live-50
+python -m task3_ttc.offline         --config configs/task3/offline.yaml  # CPU; selection rules x budgets
+python -m task3_ttc.signal_analysis --config configs/task3/offline.yaml  # CPU; Step-3 signal diagnostics
+python -m task3_ttc.adaptive        --config configs/task3/adaptive.yaml # CPU; dev-selected stopping
+python -m task3_ttc.live            --config configs/task3/live.yaml      # GPU: 50 MATH questions (resumable)
+python -m task3_ttc.analysis                                             # figures + tables from results/task3
 ```
+Scorer: `SCORER_VERSION = t3-scorer-3` (frozen at commit 23d8378); caches under
+`DRIVE_ROOT/task3/cache` (groups/correctness, rollout scalars, VisConf Z) are keyed on it, so bumping
+it invalidates them. MathVista grading is lenient on numeric answers: `data._mv_numeric_value` strips
+units/LaTeX (`\text{}`, `\mathrm{}`, `\,`, `^\circ`, degree sign, thousands commas) and accepts plain
+numbers, fractions, `a/b`, and `a×10^k`, while deliberately leaving ranges / "a and b" / `\infty` /
+functions unparseable. Per-question orders are frozen in `splits/task3/<dataset>_orders.json` and
+reused by `offline`, `adaptive`, and `signal_analysis`.
 
 ## Open questions sent to the TAs
 
