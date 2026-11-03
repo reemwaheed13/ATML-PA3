@@ -33,6 +33,7 @@ import math
 import os
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Optional
@@ -44,7 +45,7 @@ from common.paths import REPO_ROOT, ensure_dir, task3_dir
 NO_ANSWER = "NO_ANSWER"
 
 # Bump when the scoring logic changes so stale group/correctness caches are ignored.
-SCORER_VERSION = "t3-scorer-2"
+SCORER_VERSION = "t3-scorer-3"
 
 
 @dataclass
@@ -356,6 +357,82 @@ def _mv_strip_unit(s: str, unit) -> str:
     return s
 
 
+# ---- MathVista numeric parsing (answer_type integer/float only) ----
+
+_NUM = r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)"
+_MATHRM_RE = re.compile(r"\\mathrm\s*\{([^{}]*)\}")
+
+# Whole-string accepted numeric forms (spaces removed before matching).
+_PLAIN_RE = re.compile(rf"^{_NUM}$")
+_FRAC_RE = re.compile(rf"^\\d?frac\{{({_NUM})\}}\{{({_NUM})\}}$")
+_RATIO_RE = re.compile(rf"^({_NUM})/({_NUM})$")
+_TIMES10_RE = re.compile(rf"^({_NUM})\\times10\^\{{?([+-]?\d+)\}}?$")
+_POW10_RE = re.compile(rf"^10\^\{{?([+-]?\d+)\}}?$")
+
+# Leading numeric expression (spaces allowed), used when dropping a trailing unit. Ordered most
+# specific first so "10^3 m" takes the power, not the bare "10".
+_LEAD_PATTERNS = [
+    re.compile(rf"^\s*{_NUM}\s*\\times\s*10\s*\^\s*\{{?\s*[+-]?\d+\s*\}}?"),   # a x 10^k
+    re.compile(rf"^\s*\\d?frac\s*\{{\s*{_NUM}\s*\}}\s*\{{\s*{_NUM}\s*\}}"),     # \frac{a}{b}
+    re.compile(rf"^\s*10\s*\^\s*\{{?\s*[+-]?\d+\s*\}}?"),                       # 10^k
+    re.compile(rf"^\s*{_NUM}\s*/\s*{_NUM}"),                                    # a/b
+    re.compile(rf"^\s*{_NUM}"),                                                 # plain number
+]
+
+# A remainder that is only a unit: letters, spaces, /, *, ., parens/braces, backslash-macros, and
+# exponents like ^2 or ^{2}. Deliberately EXCLUDES bare digits (so "55"), signs and dashes (so a
+# second number or a range), which keeps ranges / "a and b" / functions unparseable.
+_UNIT_ONLY_RE = re.compile(
+    r"^(?:[A-Za-z]+|\s+|/|\*|·|\.|\^\s*\{?\s*\d+\s*\}?|[{}()]|\\[A-Za-z]+)*$")
+
+
+def _num_expr_value(expr: str) -> Optional[float]:
+    """Value of a whole numeric expression (plain / frac / ratio / a x 10^k / 10^k), else None."""
+    e = expr.replace(" ", "")
+    if _PLAIN_RE.match(e):
+        try:
+            return float(e)
+        except ValueError:
+            return None
+    m = _FRAC_RE.match(e) or _RATIO_RE.match(e)
+    if m:
+        try:
+            a, b = float(m.group(1)), float(m.group(2))
+        except ValueError:
+            return None
+        return a / b if b != 0 else None
+    m = _TIMES10_RE.match(e)
+    if m:
+        try:
+            return float(m.group(1)) * (10.0 ** int(m.group(2)))
+        except ValueError:
+            return None
+    m = _POW10_RE.match(e)
+    if m:
+        return 10.0 ** int(m.group(1))
+    return None
+
+
+def _mv_numeric_value(s, unit=None) -> Optional[float]:
+    """Parse a MathVista integer/float answer to a float, else None (ranges/letters/infty -> None)."""
+    t = _mv_strip_unit(_mv_strip(s), unit)
+    t = _MATHRM_RE.sub(r"\1", t)                       # unwrap \mathrm{...}
+    t = t.replace("^\\circ", "").replace("\\circ", "").replace("°", "")
+    t = t.replace("~", " ").strip()
+    if not t:
+        return None
+    v = _num_expr_value(t)                             # whole string is a number expression
+    if v is not None:
+        return v
+    for pat in _LEAD_PATTERNS:                         # number expression followed only by a unit
+        m = pat.match(t)
+        if m and _UNIT_ONLY_RE.match(t[m.end():]):
+            v = _num_expr_value(m.group(0))
+            if v is not None:
+                return v
+    return None
+
+
 def _mv_mc_letter(ans, choices: list) -> str:
     """Map a multiple-choice answer to its option letter, else return non-matching normalized text."""
     s = str(ans).strip()
@@ -383,19 +460,17 @@ def _mathvista_canonical(ans, metadata: Optional[dict]) -> str:
     if choices or qtype == "multi_choice":
         return _mv_mc_letter(ans, choices)
     atype = str(md.get("answer_type") or "").lower()
-    s = _mv_strip_unit(_mv_strip(ans), md.get("unit"))
-    if atype == "integer":
-        try:
-            return str(int(float(s)))
-        except (TypeError, ValueError):
-            return s.lower()
-    if atype == "float":
-        try:
-            prec = md.get("precision")
-            prec = int(prec) if prec is not None else 2
-            return f"{round(float(s), max(prec, 0)):.{max(prec, 0)}f}"
-        except (TypeError, ValueError):
-            return s.lower()
+    unit = md.get("unit")
+    s = _mv_strip_unit(_mv_strip(ans), unit)
+    if atype in ("integer", "float"):
+        val = _mv_numeric_value(ans, unit)
+        if val is None:
+            return s.lower()                           # unparseable -> normalized string
+        if atype == "integer":
+            return str(int(val))
+        prec = md.get("precision")
+        prec = int(prec) if prec is not None else 2
+        return f"{round(val, max(prec, 0)):.{max(prec, 0)}f}"
     return s.lower()
 
 
@@ -837,6 +912,45 @@ def _report_mathvista_metadata(cfg: dict[str, Any], questions: list[QuestionRoll
     frac = mc_letters / mc_total if mc_total else 0.0
     print(f"MathVista MC extracted answers that are letters: {frac:.4f} "
           f"({mc_letters}/{mc_total}; {mc_total - mc_letters} other)")
+
+    # (a) numeric-type extractions that still do not parse; (b) non-MC gold vs metadata answer
+    # canonicalization mismatches; (c) numeric gold answers that do not parse.
+    num_unparse = Counter()
+    nonmc_gold_diff = 0
+    nonmc_gold_diff_ex: list = []
+    gold_num_fail = 0
+    gold_num_fail_ex: list = []
+    for q in present:
+        md = md_map.get(q.sample_id) or {}
+        choices = md.get("choices") or []
+        if bool(choices) or str(md.get("question_type") or "").lower() == "multi_choice":
+            continue                                    # non-multiple-choice only
+        atype = str(md.get("answer_type") or "").lower()
+        unit = md.get("unit")
+        meta_ans = md.get("answer")
+        if meta_ans is not None and _mathvista_canonical(q.gold, md) != _mathvista_canonical(meta_ans, md):
+            nonmc_gold_diff += 1
+            if len(nonmc_gold_diff_ex) < 10:
+                nonmc_gold_diff_ex.append((q.sample_id, q.gold, meta_ans))
+        if atype in ("integer", "float"):
+            if _mv_numeric_value(q.gold, unit) is None:
+                gold_num_fail += 1
+                if len(gold_num_fail_ex) < 20:
+                    gold_num_fail_ex.append((q.sample_id, q.gold))
+            for r in q.rollouts:
+                ex = r.get("extracted")
+                if ex is not None and _mv_numeric_value(ex, unit) is None:
+                    num_unparse[str(ex)] += 1
+
+    print(f"numeric (integer/float) extractions still unparseable: {sum(num_unparse.values())}")
+    for ex, c in num_unparse.most_common(20):
+        print(f"    {c:5d}  {ex!r}")
+    print(f"non-MC gold != metadata answer (canonical): {nonmc_gold_diff}")
+    for sid, g, ma in nonmc_gold_diff_ex:
+        print(f"    {sid}: gold={g!r} meta={ma!r}")
+    print(f"numeric gold answers that do not parse: {gold_num_fail}")
+    for sid, g in gold_num_fail_ex:
+        print(f"    {sid}: {g!r}")
 
 
 def main() -> None:
