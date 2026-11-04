@@ -68,13 +68,16 @@ configs/       One YAML per run/condition (every hyperparameter from the handout
 splits/        Write-once selection IDs (committed): kept indices, probe IDs, image/pair IDs,
                Task 3 dev/eval splits, mismatched-image mapping.
 results/       Small machine-readable outputs (committed). Large artifacts go to DRIVE_ROOT.
+               Task 2 also keeps results/task2/stage_timing.json (per-stage timing) and
+               results/task2/feature_cache_topup.jsonl (log of images fetched to top up features).
 task1_llm/     Task 1: data, shared LoRA/OPLoRA adapter, model, L2-SP, train, eval, diagnostics,
                qualitative.
 task2_vlm/     Task 2: SigLIP feature cache, data+curriculum, connector, VLM assembly, train,
                eval, VQA scoring.
 task3_ttc/     Task 3: rollout loading, splits, quality signals, offline selection, live run,
                adaptive stopping.
-colab/         setup.ipynb bootstrap.
+colab/         setup.ipynb bootstrap, plus task2_full_pipeline.ipynb and
+               task3_full_pipeline.ipynb (the full per-task reproduction sequences).
 docs/          Handout (gitignored).
 ```
 
@@ -162,13 +165,49 @@ Caveats:
   reported run was trained before it.
 
 ### Task 2 — Vision-language model
+Run in this order; the whole sequence is in `colab/task2_full_pipeline.ipynb`.
 ```bash
-python -m task2_vlm.features --config configs/task2/data.yaml        # cache SigLIP features (FP16)
-python -m task2_vlm.train    --config configs/task2/vlm_stages.yaml  # 3-stage curriculum
-python -m task2_vlm.evaluate --config configs/task2/vlm_stages.yaml  # dev + final grounding eval
-python -m task2_vlm.analysis --config configs/task2/vlm_stages.yaml  # Required Evidence figures + tables (CPU-only)
-# Optional: python -m task2_vlm.train --config configs/task2/compress49.yaml
+python -m task2_vlm.data --config configs/task2/data.yaml        # freeze selections (from scratch only)
+python -m task2_vlm.data --config configs/task2/data.yaml --repair-grounding-disjointness
+# Fetch any manifest image missing from Drive from images.cocodataset.org
+#   (see colab/task2_full_pipeline.ipynb, cell B0).
+python -m task2_vlm.features    --config configs/task2/data.yaml        # cache SigLIP features (FP16)
+python -m task2_vlm.train       --config configs/task2/vlm_stages.yaml --resume      # 3-stage curriculum
+python -m task2_vlm.evaluate    --config configs/task2/vlm_stages.yaml --mode final  # dev eval runs inside training
+python -m task2_vlm.time_stages --config configs/task2/vlm_stages.yaml # per-stage timing
+python -m task2_vlm.analysis    --config configs/task2/vlm_stages.yaml # Required Evidence figures + tables (CPU-only)
 ```
+The optional 49-token experiment (Step 7) was not run.
+
+### Task 2 — results and caveats
+
+Final results are in `results/task2/vlm_stages_final.json` and `results/task2/tables/`; the reported
+run is commit `f167a3f`.
+
+Caveats:
+
+- **Training processes.** Training ran as three processes (resumed at updates 2750 and 3250). The
+  logged wall time (9,700.4 s) and peak GPU (10.14 GB) cover only the final process (updates
+  3251–4500).
+- **Per-stage timing.** `results/task2/stage_timing.json`: 5 warm-up + 50 timed updates per stage
+  from the stage-start weights. The benchmark starts with an empty in-process feature cache, so most
+  examples load features from Drive on first use. Training keeps loaded features on GPU: logged peak
+  memory rose from 5.74 GB (update 250) to 7.03 GB (update 1250) to 10.14 GB (update 3500).
+- **Generation time.** Generation time per answer includes loading cached features from Drive (the
+  timer starts before feature loading). The correct-image condition runs first and reads each feature
+  file uncached. One untimed warm-up batch runs before timing.
+- **Restored checkpoints.** The stage-end checkpoints (updates 2250, 3750) were deleted by checkpoint
+  pruning during training (fixed in `e093242`) and restored from Google Drive's trash.
+- **Evaluation-set disjointness.** Grounding-test pairs 34 and 36 originally shared images 507330 and
+  437423 with natural-VQA test. They were replaced deterministically (seed 6304, same counting
+  construction, category "bus"). Their 4 new val2014 images were downloaded individually from
+  images.cocodataset.org, and the feature top-up is logged in
+  `results/task2/feature_cache_topup.jsonl`. `data.py` now asserts that all five evaluation sets are
+  pairwise image-disjoint and disjoint from training.
+- **Re-eval nondeterminism.** Re-evaluating with identical weights changed 3 of 768 natural-VQA
+  generations (FP16 kernels); only the mismatched-image accuracy moved (0.336 → 0.331).
+- **No-image condition.** No-image accuracy is 0 because answers without an image are full sentences;
+  reference NLL is reported for that condition.
 
 ### Task 3 — Test-time compute
 Run in this order (CPU except `live`); each step reads the artifacts the previous ones wrote:
@@ -188,6 +227,20 @@ numbers, fractions, `a/b`, and `a×10^k`, while deliberately leaving ranges / "a
 functions unparseable. Per-question orders are frozen in `splits/task3/<dataset>_orders.json` and
 reused by `offline`, `adaptive`, and `signal_analysis`.
 
+### Task 3 — results and caveats
+
+The full sequence is in `colab/task3_full_pipeline.ipynb`; a CPU runtime suffices when
+`results/task3/live/live_summary.json` already covers 50 questions. Results are in `results/task3/`
+(`tables/`, `figures/`, `offline.json`, `adaptive.json`, `signals.json`, `live/`).
+
+Caveats:
+
+- **MATH timeouts.** 40 math-verify timeouts, all in one MATH question, are treated as not equal.
+- **MathVista extraction.** 1,002 numeric MathVista extractions remain unparseable (ranges,
+  "X and Y", infinity, functions, words); they form their own answer groups and are graded incorrect.
+- **Offline token cost.** Offline token cost is a proxy: generated tokens only, excluding prefill,
+  attention collection and scoring.
+
 ## Open questions sent to the TAs
 
 Tracked here and in the relevant configs; selections are frozen into `splits/` with the rule used.
@@ -195,11 +248,14 @@ Tracked here and in the relevant configs; selections are frozen into `splits/` w
 2. ~~Whether `first_plot_questions.yaml` is supplied or we author the 8 base questions.~~
    Resolved: use the 24-entry file from Betley et al. 2025 (*Emergent Misalignment*), committed
    unchanged at `configs/task1/first_plot_questions.yaml` (see Attribution).
-3. Which 3 of COCO's 5 captions per training image.
-4. Seeding of the ten Task-3 rollout permutation orders.
+3. Which 3 of COCO's 5 captions per training image; we use the first 3 captions by ascending
+   caption id.
+4. Seeding of the ten Task-3 rollout permutation orders; we derive each order from
+   `SeedSequence([6304, question_index, k])`.
 5. The "prompt token before answer continuation" convention for HellaSwag activation hooks.
 6. (Self-check, not a TA question) Confirm Qwen3-0.6B is hidden=1024 / 28 layers on Colab — the
    connector output dim and the `{0,13,27}` diagnostic layers assume this.
+7. Whether the lenient MathVista numeric/unit handling is acceptable.
 
 ## Attribution
 
@@ -216,5 +272,8 @@ clear attribution of materially reused code). Updated as implementation proceeds
 | Connector / visual instruction tuning design | Liu et al., *Visual Instruction Tuning* (LLaVA) | `task2_vlm/connector.py`, `model.py` |
 | SigLIP encoder, Qwen3 chat template | HuggingFace `transformers` | `task2_vlm/features.py`, Task 1/2 models |
 | Qualitative prompts (`first_plot_questions.yaml`, 24 entries, unchanged) | Betley et al. 2025, *Emergent Misalignment* (repo `emergent-misalignment/emergent-misalignment`, `evaluation/first_plot_questions.yaml`) | `configs/task1/first_plot_questions.yaml`, `task1_llm/qualitative.py` |
+| Self-certainty (KL(U‖p)) selection signal | Kang et al. | `task3_ttc/signals.py`, `task3_ttc/offline.py` |
+| VisConf + rank-weighted consensus | Usman et al. | `task3_ttc/signals.py`, `task3_ttc/offline.py` |
+| COCO 2014 images/annotations, VQAv2 (data, not code) | COCO (Lin et al.), VQAv2 (Goyal et al.) | `task2_vlm/data.py` |
 
 Repository link will be added at the end of the report abstract (handout p1, p15).

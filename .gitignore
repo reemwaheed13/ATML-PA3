@@ -20,6 +20,9 @@ hf_cache/
 # Task 2 smoke selections/manifest (throwaway; keep real splits/task2 committed)
 splits/task2_smoke/
 
+# Raw COCO images fetched locally for feature caching (committed by mistake once; keep off the repo)
+results/task2/_coco_cache/
+
 # Python
 __pycache__/
 *.py[cod]

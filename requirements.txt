@@ -1,7 +1,7 @@
 # ATML PA3 requirements.
 # Philosophy: on Colab, prefer the preinstalled torch build; pin the libraries whose
-# *behavior/task-definitions* we depend on. Lines marked ▲ are versions I'm not certain of
-# and intend to confirm/pin on Colab (see colab/setup.ipynb env validation) rather than guess.
+# *behavior/task-definitions* we depend on. These are the pinned direct dependencies; the full
+# Colab environment freeze is in env/colab_freeze.txt (torch 2.11.0+cu130, transformers 5.20.2).
 
 # --- Core DL stack ---
 # torch: use Colab's preinstalled CUDA build. Do NOT pin here unless a run needs a specific one.
@@ -18,8 +18,8 @@ accelerate>=0.30
 #   vLLM backend is optional (see below) and only used if it runs on the L4.
 lm-eval==0.4.13
 
-# ▲ math-verify: MATH equivalence for Task 3 (handout p11). Confirm import name + version on Colab.
-math-verify
+# math-verify: MATH equivalence for Task 3 (handout p11). Pinned to the version validated on Colab.
+math-verify==0.9.0
 
 # --- Data ---
 datasets>=2.18
