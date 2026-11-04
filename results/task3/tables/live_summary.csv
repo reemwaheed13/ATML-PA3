@@ -1,4 +1,4 @@
-strategy,accuracy,extraction_rate,truncation_rate,mean_output_tokens,total_runtime_s,wrong_to_correct,correct_to_wrong
-single_long,0.66,0.98,0.02,730.9,1566.9132952890018,,
-parallel,0.58,0.82,0.24,1862.78,3989.893094820997,4,0
-sequential_refinement,0.54,0.98,0.18,1185.64,2544.6251246630018,2,0
+strategy,accuracy,extraction_rate,truncation_rate,mean_input_tokens,mean_output_tokens,total_runtime_s,wrong_to_correct,correct_to_wrong
+single_long,0.66,0.98,0.02,108.38,730.9,1566.9132952890018,,
+parallel,0.58,0.82,0.24,325.14,1862.78,3989.893094820997,4,0
+sequential_refinement,0.54,0.98,0.18,878.04,1185.64,2544.6251246630018,2,0

@@ -1,0 +1,4 @@
+stage_idx,stage,start_weights,seconds_per_update,timed_updates,stage_updates,estimated_stage_seconds,estimated_stage_hours,peak_gpu_bytes,peak_gpu_gb
+0,caption_alignment,fresh_connector+calibration_scale(0.054787),10.473445377139997,50,2250,23565.252098564994,6.545903360712498,5062142976,5.062142976
+1,visual_instruction_tuning,checkpoint@update2250,10.860718045760004,50,1500,16291.077068640006,4.525299185733335,5034724352,5.034724352
+2,natural_vqa,checkpoint@update3750,10.929393695419995,50,750,8197.045271564995,2.2769570198791653,4984019456,4.984019456

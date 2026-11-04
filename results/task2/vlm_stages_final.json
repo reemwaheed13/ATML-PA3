@@ -1,4 +1,9 @@
 {
+  "generation_warmup": {
+    "ran": true,
+    "excluded_from_timing": true,
+    "note": "one untimed generate() batch run before timing; no condition's gen_seconds_per_answer includes warm-up."
+  },
   "grounding": {
     "correct": {
       "accuracy_overall": 0.578125,
@@ -9,8 +14,8 @@
       "pair_accuracy": 0.25,
       "identical_answer_rate": 0.640625,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 0.43811903905589134,
-      "gen_seconds_per_answer": 0.7133117639999824
+      "mean_reference_nll": 0.435790128485678,
+      "gen_seconds_per_answer": 0.6507157706796889
     },
     "complementary_swap": {
       "accuracy_overall": 0.40625,
@@ -21,8 +26,8 @@
       "pair_accuracy": 0.078125,
       "identical_answer_rate": 0.640625,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 0.5902246990735875,
-      "gen_seconds_per_answer": 0.044070357742185706,
+      "mean_reference_nll": 0.5990008824737743,
+      "gen_seconds_per_answer": 0.01945903028905782,
       "follows_partner_rate": 0.578125
     },
     "mismatched": {
@@ -34,8 +39,8 @@
       "pair_accuracy": 0.09375,
       "identical_answer_rate": 0.828125,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 0.5476386321061,
-      "gen_seconds_per_answer": 0.043604806484367487
+      "mean_reference_nll": 0.5475044381382759,
+      "gen_seconds_per_answer": 0.019203241132812465
     },
     "no_image": {
       "accuracy_overall": 0.0,
@@ -46,20 +51,20 @@
       "pair_accuracy": 0.0,
       "identical_answer_rate": 1.0,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 4.0430378913879395,
-      "gen_seconds_per_answer": 0.11315630502346607
+      "mean_reference_nll": 4.039874970912933,
+      "gen_seconds_per_answer": 0.10381569195312323
     }
   },
   "grounding_advantage": {
     "accuracy_advantage_mean": 0.171875,
     "accuracy_advantage_ci95": [
-      0.0390625,
-      0.3046875
+      0.03125,
+      0.3125
     ],
-    "nll_advantage_mean": 0.1521056600176962,
+    "nll_advantage_mean": 0.16321075398809626,
     "nll_advantage_ci95": [
-      0.04958410432172969,
-      0.25876237928696355
+      0.05714786190610539,
+      0.27075841479409063
     ],
     "n_pairs": 64
   },
@@ -74,8 +79,8 @@
       "pair_accuracy": 0.28125,
       "identical_answer_rate": 0.4583333333333333,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 0.9435418556352791,
-      "gen_seconds_per_answer": 0.6971141396666477
+      "mean_reference_nll": 0.9435662826620804,
+      "gen_seconds_per_answer": 0.7136409199010423
     },
     "complementary_swap": {
       "accuracy_overall": 0.2598958333333333,
@@ -87,22 +92,22 @@
       "pair_accuracy": 0.041666666666666664,
       "identical_answer_rate": 0.4583333333333333,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 1.657174934502109,
-      "gen_seconds_per_answer": 0.03837832543228122,
+      "mean_reference_nll": 1.6573006664645316,
+      "gen_seconds_per_answer": 0.02471676617188005,
       "follows_partner_rate": 0.53125
     },
     "mismatched": {
-      "accuracy_overall": 0.3364583333333333,
+      "accuracy_overall": 0.33125,
       "accuracy_by_type": {
-        "yes_no": 0.4972222222222222,
+        "yes_no": 0.4833333333333333,
         "number": 0.31666666666666665,
         "other": 0.18888888888888888
       },
-      "pair_accuracy": 0.0625,
-      "identical_answer_rate": 0.5625,
+      "pair_accuracy": 0.052083333333333336,
+      "identical_answer_rate": 0.5729166666666666,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 1.5032102708307018,
-      "gen_seconds_per_answer": 0.039842075338526683
+      "mean_reference_nll": 1.5030950434108188,
+      "gen_seconds_per_answer": 0.026045552020834844
     },
     "no_image": {
       "accuracy_overall": 0.0,
@@ -114,8 +119,8 @@
       "pair_accuracy": 0.0,
       "identical_answer_rate": 1.0,
       "empty_answer_rate": 0.0,
-      "mean_reference_nll": 6.0987737240890665,
-      "gen_seconds_per_answer": 0.12965650728126357
+      "mean_reference_nll": 6.099081166088581,
+      "gen_seconds_per_answer": 0.13096406255728965
     }
   },
   "natural_vqa_advantage": {
@@ -124,10 +129,10 @@
       0.2041666666666667,
       0.3880208333333333
     ],
-    "nll_advantage_mean": 0.7136330788668298,
+    "nll_advantage_mean": 0.7137343838024511,
     "nll_advantage_ci95": [
-      0.5267967375558025,
-      0.9100866424627156
+      0.5270548511031545,
+      0.9098385312145411
     ],
     "n_pairs": 96
   }

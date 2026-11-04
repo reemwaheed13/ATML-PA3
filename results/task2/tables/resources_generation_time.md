@@ -2,11 +2,11 @@
 
 | suite | condition | gen_seconds_per_answer |
 | --- | --- | --- |
-| grounding | correct | 0.713312 |
-| grounding | complementary_swap | 0.0440704 |
-| grounding | mismatched | 0.0436048 |
-| grounding | no_image | 0.113156 |
-| natural_vqa | correct | 0.697114 |
-| natural_vqa | complementary_swap | 0.0383783 |
-| natural_vqa | mismatched | 0.0398421 |
-| natural_vqa | no_image | 0.129657 |
+| grounding | correct | 0.650716 |
+| grounding | complementary_swap | 0.019459 |
+| grounding | mismatched | 0.0192032 |
+| grounding | no_image | 0.103816 |
+| natural_vqa | correct | 0.713641 |
+| natural_vqa | complementary_swap | 0.0247168 |
+| natural_vqa | mismatched | 0.0260456 |
+| natural_vqa | no_image | 0.130964 |
