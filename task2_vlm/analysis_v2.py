@@ -169,10 +169,10 @@ QUAL_RULE_V2 = (
     "(b) identical normalized prediction on both images under correct-image input; (c) under "
     "complementary-swap input, both images' predictions equal the partner image's canonical "
     "reference; (d) under correct-image input, one image is wrong (score<0.5) while its partner is "
-    "correct (score>=0.5). For natural_vqa, after (a)-(d) one additional (d) example is added per "
-    "question_type (yes_no, number, other): the first still-unused (d) pair of that type. Matching "
-    "uses normalized predictions (scoring unchanged); raw_generation is reported for the correct "
-    "and swap conditions."
+    "correct (score>=0.5). After (a)-(d), for each suite one additional (d) example is added per "
+    "question_type present in the suite (grounding: counting, presence; natural_vqa: number, other, "
+    "yes_no): the first still-unused (d) pair of that type. Matching uses normalized predictions "
+    "(scoring unchanged); raw_generation is reported for the correct and swap conditions."
 )
 
 
@@ -275,15 +275,21 @@ def qualitative_v2(examples: list[dict], tables_dir: Path) -> list[Path]:
             used.add(pid)
             lo, hi = _lohi(pairs, pid)
             rows.append(_qual_row(suite, key, None, pid, lo, hi))
-        if suite == "natural_vqa":
-            for qt in ("yes_no", "number", "other"):
-                pid = _first_match(pairs, "d_wrong_vs_right_partner", used, question_type=qt)
-                if pid is None:
-                    print(f"[task2.analysis_v2] natural_vqa: no unused (d) pair for {qt}.")
-                    continue
-                used.add(pid)
-                lo, hi = _lohi(pairs, pid)
-                rows.append(_qual_row(suite, "d_wrong_vs_right_partner", qt, pid, lo, hi))
+        # One extra (d) example per question_type present in the suite (so each type -- incl.
+        # grounding 'presence' and natural_vqa 'other' -- is illustrated), still no pair reused.
+        qtypes: list[str] = []
+        for p in pairs:
+            lh = _lohi(pairs, p)
+            if lh is not None and lh[0].get("question_type") not in qtypes:
+                qtypes.append(lh[0].get("question_type"))
+        for qt in sorted(qtypes):
+            pid = _first_match(pairs, "d_wrong_vs_right_partner", used, question_type=qt)
+            if pid is None:
+                print(f"[task2.analysis_v2] {suite}: no unused (d) pair for {qt}.")
+                continue
+            used.add(pid)
+            lo, hi = _lohi(pairs, pid)
+            rows.append(_qual_row(suite, "d_wrong_vs_right_partner", qt, pid, lo, hi))
     return _write_table(pd.DataFrame(rows), "qualitative_v2", tables_dir, caption=QUAL_RULE_V2)
 
 
